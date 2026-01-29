@@ -1,165 +1,128 @@
 package com.walli.flexcriatiwa
 
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.firestore
+import com.google.firebase.firestore.toObject
 
-// Nossa "fonte da verdade" para todos os dados de gestão.
+// ViewModel agora conversa direto com o Firebase
 class ManagementViewModel : ViewModel() {
 
-    // --- LISTAS REAIS DE DADOS ---
-    // Elas começam com os dados de exemplo, mas agora elas podem ser modificadas.
-    var products by mutableStateOf(
-        listOf(
-            ManagedProduct(
-                id = "1",
-                name = "X-Burger Especial",
-                price = 25.00,
-                imageUrl = "",
-                isActive = true,
-                // --- ADICIONE OS CAMPOS FALTANTES ---
-                category = "Lanches",
-                ingredients = setOf("Pão", "Carne 150g", "Queijo"),
-                optionals = setOf(OptionalItem("Bacon", 3.00))
-            ),
-            ManagedProduct(
-                id = "2",
-                name = "Batata Frita Grande",
-                price = 15.00,
-                imageUrl = "",
-                isActive = false,
-                // --- ADICIONE OS CAMPOS FALTANTES ---
-                category = "Acompanhamentos", // Exemplo de outra categoria
-                ingredients = setOf("Batata", "Sal"),
-                optionals = emptySet() // Não tem opcionais
-            ),
-            ManagedProduct(
-                id = "3",
-                name = "Milkshake de Morango",
-                price = 18.00,
-                imageUrl = "",
-                isActive = true,
-                // --- ADICIONE OS CAMPOS FALTANTES ---
-                category = "Bebidas",
-                ingredients = setOf("Leite", "Sorvete", "Calda de Morango"),
-                optionals = setOf(OptionalItem("Chantilly", 2.00))
-            )
-        )
-    )
-        private set // Só o ViewModel pode alterar a lista diretamente
+    // Instância do banco de dados na nuvem
+    private val db = Firebase.firestore
 
-    // --- ADICIONE ESTE NOVO BLOCO PARA CATEGORIAS ---
-    var categories by mutableStateOf(
-        listOf("Lanches", "Bebidas", "Sobremesas", "Acompanhamentos")
-    )
+    // Lista de produtos que a tela vê
+    var products by mutableStateOf<List<ManagedProduct>>(emptyList())
         private set
 
-    // --- ADICIONE ESTE BLOCO PARA INGREDIENTES ---
-    var ingredients by mutableStateOf(
-        listOf("Pão Brioche", "Carne 150g", "Queijo Cheddar", "Alface", "Tomate")
-    )
+    init {
+        // --- A MÁGICA ACONTECE AQUI ---
+        // Ficamos "ouvindo" a coleção 'products' na nuvem.
+        // Se alguém adicionar um produto em outro celular, esta lista atualiza sozinha aqui.
+        db.collection("products")
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    Log.w("Firebase", "Erro ao ouvir dados", e)
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null) {
+                    // Converte os documentos do Firebase para seus objetos ManagedProduct
+                    products = snapshot.documents.mapNotNull { doc ->
+                        // Tentamos converter automaticamente
+                        val product = try {
+                            // Mapeamento manual para garantir segurança nos tipos
+                            ManagedProduct(
+                                id = doc.id,
+                                name = doc.getString("name") ?: "",
+                                price = doc.getDouble("price") ?: 0.0,
+                                imageUrl = doc.getString("imageUrl") ?: "",
+                                isActive = doc.getBoolean("isActive") ?: true,
+                                category = doc.getString("category") ?: "Geral",
+                                ingredients = (doc.get("ingredients") as? List<String>)?.toSet() ?: emptySet(),
+                                // Para opcionais, simplificamos convertendo do Hashmap do Firebase
+                                optionals = try {
+                                    val list = doc.get("optionals") as? List<Map<String, Any>>
+                                    list?.map {
+                                        OptionalItem(
+                                            name = it["name"] as? String ?: "",
+                                            price = (it["price"] as? Number)?.toDouble() ?: 0.0
+                                        )
+                                    }?.toSet() ?: emptySet()
+                                } catch (e: Exception) { emptySet() }
+                            )
+                        } catch (e: Exception) {
+                            null
+                        }
+                        product
+                    }
+                }
+            }
+    }
+
+    // --- DADOS TEMPORÁRIOS (Categorias, etc) ---
+    var categories by mutableStateOf(listOf("Lanches", "Bebidas", "Sobremesas", "Acompanhamentos"))
+        private set
+    var ingredients by mutableStateOf(listOf("Pão Brioche", "Carne 150g", "Queijo Cheddar", "Alface", "Tomate"))
+        private set
+    var optionals by mutableStateOf(listOf(OptionalItem("Ovo Extra", 2.50), OptionalItem("Bacon Crocante", 4.00), OptionalItem("Queijo Extra", 3.00)))
         private set
 
+    // --- LÓGICA DO CARDÁPIO ---
     val productsByCategory: List<MenuCategory>
         get() {
-            // 1. Filtra apenas os produtos que estão ATIVOS
-            val activeProducts = products.filter { it.isActive }
-
-            // 2. Agrupa os produtos ativos pela sua propriedade 'category'
-            return activeProducts.groupBy { it.category }
-                // 3. Transforma o mapa resultante em uma lista de MenuCategory
-                .map { (categoryName, productList) ->
-                    MenuCategory(
-                        name = categoryName,
-                        // 4. Transforma a lista de ManagedProduct em uma lista de MenuItem
-                        items = productList.map { product ->
-                            MenuItem(
-                                id = product.id,
-                                name = product.name,
-                                price = product.price,
-                                imageUrl = product.imageUrl
-                            )
-                        }
-                    )
+            return products.filter { it.isActive }
+                .groupBy { it.category }
+                .map { (catName, items) ->
+                    MenuCategory(catName, items.map { MenuItem(it.id, it.name, it.price, it.imageUrl) })
                 }
         }
 
-    fun addIngredient(ingredientName: String) {
-        if (!ingredients.contains(ingredientName)) {
-            ingredients = ingredients + ingredientName
-        }
-    }
-
-    fun deleteIngredient(ingredientName: String) {
-        ingredients = ingredients - ingredientName
-    }
-
-    // --- ADICIONE ESTE BLOCO PARA OPCIONAIS ---
-    var optionals by mutableStateOf(
-        listOf(
-            OptionalItem("Ovo Extra", 2.50),
-            OptionalItem("Bacon Crocante", 4.00),
-            OptionalItem("Queijo Extra", 3.00)
+    // --- SALVAR NA NUVEM ---
+    fun upsertProduct(product: ManagedProduct) {
+        // Preparamos os dados para enviar (Firebase prefere Listas a Sets)
+        val productData = hashMapOf(
+            "name" to product.name,
+            "price" to product.price,
+            "imageUrl" to product.imageUrl,
+            "isActive" to product.isActive,
+            "category" to product.category,
+            "ingredients" to product.ingredients.toList(),
+            "optionals" to product.optionals.toList() // O Firebase serializa a classe OptionalItem auto
         )
-    )
-        private set
 
-    fun addOptional(optionalItem: OptionalItem) {
-        if (!optionals.any { it.name.equals(optionalItem.name, ignoreCase = true) }) {
-            optionals = optionals + optionalItem
+        if (product.id.isBlank()) {
+            // Criar Novo: Deixamos o Firebase gerar o ID único
+            db.collection("products").add(productData)
+        } else {
+            // Editar Existente: Usamos o ID para atualizar
+            db.collection("products").document(product.id).set(productData)
         }
     }
 
-    fun deleteOptional(optionalItem: OptionalItem) {
-        optionals = optionals - optionalItem
-    }
-    // ------------------------------------------
-
-    fun addCategory(categoryName: String) {
-        if (!categories.contains(categoryName)) {
-            categories = categories + categoryName
+    // --- DELETAR DA NUVEM ---
+    fun deleteProduct(product: ManagedProduct) {
+        if (product.id.isNotBlank()) {
+            db.collection("products").document(product.id).delete()
         }
     }
 
-    fun deleteCategory(categoryName: String) {
-        categories = categories - categoryName
-    }
-
-    // Estado para guardar o produto que está sendo editado
+    // --- EDIÇÃO (Lógica Local) ---
     var productToEdit by mutableStateOf<ManagedProduct?>(null)
         private set
 
-    // --- FUNÇÕES PARA MANIPULAR OS DADOS ---
+    fun loadProductForEdit(product: ManagedProduct) { productToEdit = product }
+    fun clearEditState() { productToEdit = null }
 
-    // Função para adicionar ou atualizar um produto
-    fun upsertProduct(product: ManagedProduct) {
-        val existingProduct = products.find { it.id == product.id }
-
-        if (existingProduct == null) {
-            // Se não existe (novo produto), adiciona à lista.
-            // (Em um app real, o ID seria gerado aqui)
-            products = products + product
-        } else {
-            // Se já existe (edição), substitui o antigo pelo novo.
-            products = products.map { if (it.id == product.id) product else it }
-        }
-    }
-
-    fun deleteProduct(product: ManagedProduct) {
-        // Filtra a lista de produtos, mantendo todos EXCETO o que tem o ID correspondente.
-        products = products.filter { it.id != product.id }
-    }
-
-    // Função para carregar um produto para edição
-    fun loadProductForEdit(product: ManagedProduct) {
-        productToEdit = product
-    }
-
-    // Função para limpar o estado de edição quando o usuário sai da tela
-    fun clearEditState() {
-        productToEdit = null
-    }
-
-    // Futuramente, funções como deleteProduct, addCategory, etc., virão aqui.
+    // --- FUNÇÕES AUXILIARES ---
+    fun addIngredient(i: String) { if (!ingredients.contains(i)) ingredients = ingredients + i }
+    fun deleteIngredient(i: String) { ingredients = ingredients - i }
+    fun addCategory(c: String) { if (!categories.contains(c)) categories = categories + c }
+    fun deleteCategory(c: String) { categories = categories - c }
+    fun addOptional(o: OptionalItem) { if (!optionals.any { it.name.equals(o.name, true) }) optionals = optionals + o }
+    fun deleteOptional(o: OptionalItem) { optionals = optionals - o }
 }

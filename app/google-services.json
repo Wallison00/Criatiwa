@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "952947446280",
+    "project_id": "criatiwa-d975d",
+    "storage_bucket": "criatiwa-d975d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:952947446280:android:a1005aad15294360d077bd",
+        "android_client_info": {
+          "package_name": "com.walli.flexcriatiwa"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAT9RHpUKAjqWIZAtpCp7ptTabh4drult4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

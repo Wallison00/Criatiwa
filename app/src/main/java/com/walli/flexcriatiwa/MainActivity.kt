@@ -259,6 +259,7 @@ fun MainAppLayout(
 fun AppNavigation() {
     val navController = rememberNavController()
     val orderViewModel: OrderViewModel = viewModel()
+    // Voltamos ao simples, pois o Firebase se inicializa sozinho
     val managementViewModel: ManagementViewModel = viewModel()
     val kitchenViewModel: KitchenViewModel = viewModel()
 
