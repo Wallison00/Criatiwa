@@ -1,6 +1,8 @@
 package com.walli.flexcriatiwa
 
+import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -25,6 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,7 +36,6 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import coil.compose.rememberAsyncImagePainter
 import com.walli.flexcriatiwa.ui.theme.FlexCriatiwaTheme
 import kotlinx.coroutines.launch
 
@@ -48,7 +50,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// --- GRAFO DE NAVEGAÇÃO PRINCIPAL ---
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
@@ -113,7 +114,6 @@ fun AppNavigation() {
 
         composable("detail/{itemId}") { backStackEntry ->
             val itemId = backStackEntry.arguments?.getString("itemId")
-
             val managedProduct = remember(itemId) {
                 managementViewModel.products.find { it.id == itemId }
             }
@@ -150,12 +150,6 @@ fun AppNavigation() {
                 emptyList()
             }
 
-            LaunchedEffect(tableNumber) {
-                if (tableNumber != null && orderViewModel.currentCartItems.isNotEmpty()) {
-                    // Lógica opcional
-                }
-            }
-
             OrderScreen(
                 orderViewModel = orderViewModel,
                 kitchenViewModel = kitchenViewModel,
@@ -173,7 +167,7 @@ fun AppNavigation() {
                 },
                 onSendToKitchen = {
                     val destination = orderViewModel.destinationType ?: "Viagem"
-                    val tables = orderViewModel.tableSelection // Passa o Set inteiro agora
+                    val tables = orderViewModel.tableSelection
                     val client = orderViewModel.clientName ?: "Cliente Balcão"
 
                     if (tableNumber != null) {
@@ -185,9 +179,9 @@ fun AppNavigation() {
                         kitchenViewModel.submitNewOrder(
                             items = orderViewModel.currentCartItems,
                             destinationType = destination,
-                            tableSelection = tables, // Passa o Set<Int>
+                            tableSelection = tables,
                             clientName = client,
-                            payments = orderViewModel.payments // Passa a lista de objetos SplitPayment
+                            payments = orderViewModel.payments
                         )
                     }
 
@@ -201,7 +195,6 @@ fun AppNavigation() {
     }
 }
 
-// --- LAYOUT COM DRAWER (MENU LATERAL) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppLayout(
@@ -262,12 +255,8 @@ fun MainAppLayout(
                 onNavigateToItemDetail = { itemId -> navController.navigate("detail/$itemId") },
                 onNavigateToOrder = { navController.navigate("order_summary/null") }
             )
-            1 -> KitchenScreen(
-                kitchenViewModel = kitchenViewModel
-            )
-            2 -> CounterScreen(
-                kitchenViewModel = kitchenViewModel
-            )
+            1 -> KitchenScreen(kitchenViewModel = kitchenViewModel)
+            2 -> CounterScreen(kitchenViewModel = kitchenViewModel)
             3 -> TableScreen(
                 kitchenViewModel = kitchenViewModel,
                 onTableClick = { tableNum -> navController.navigate("order_summary/$tableNum") }
@@ -283,7 +272,6 @@ fun MainAppLayout(
     }
 }
 
-// --- TELA PRINCIPAL (CARDÁPIO) ---
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(
@@ -323,9 +311,7 @@ fun MainScreen(
             CenterAlignedTopAppBar(
                 title = { Text("Cardápio", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onOpenDrawer) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu")
-                    }
+                    IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, contentDescription = "Menu") }
                 }
             )
         },
@@ -361,11 +347,7 @@ fun MainScreen(
                         CategoryChip(
                             text = category.name,
                             isSelected = index == activeCategoryIndex,
-                            onClick = {
-                                scope.launch {
-                                    if(index == 0) listState.animateScrollToItem(0)
-                                }
-                            }
+                            onClick = { scope.launch { if(index == 0) listState.animateScrollToItem(0) } }
                         )
                     }
                 }
@@ -376,9 +358,7 @@ fun MainScreen(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp)
                 ) {
                     categories.forEach { category ->
-                        stickyHeader {
-                            CategoryHeader(category.name)
-                        }
+                        stickyHeader { CategoryHeader(category.name) }
                         item {
                             LazyVerticalGrid(
                                 columns = GridCells.Adaptive(minSize = 150.dp),
@@ -406,6 +386,21 @@ fun MainScreen(
 
 @Composable
 fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
+    // --- LÓGICA DE DECODIFICAÇÃO MANUAL DA IMAGEM ---
+    val decodedBitmap = remember(item.imageUrl) {
+        try {
+            if (item.imageUrl.startsWith("data:image")) {
+                val base64String = item.imageUrl.substringAfter(",")
+                val decodedBytes = Base64.decode(base64String, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+                    ?.asImageBitmap()
+            } else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     Column(
         modifier = Modifier.width(160.dp).clickable(onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -416,9 +411,9 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                if (item.imageUrl.isNotBlank()) {
+                if (decodedBitmap != null) {
                     Image(
-                        painter = rememberAsyncImagePainter(item.imageUrl),
+                        bitmap = decodedBitmap,
                         contentDescription = item.name,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

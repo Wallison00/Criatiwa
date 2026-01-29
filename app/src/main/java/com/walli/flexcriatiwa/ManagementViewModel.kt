@@ -1,41 +1,43 @@
 package com.walli.flexcriatiwa
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Base64
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
-import com.google.firebase.firestore.toObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
+import java.util.UUID
 
-// ViewModel agora conversa direto com o Firebase
 class ManagementViewModel : ViewModel() {
 
-    // Instância do banco de dados na nuvem
     private val db = Firebase.firestore
 
     // Lista de produtos que a tela vê
     var products by mutableStateOf<List<ManagedProduct>>(emptyList())
         private set
 
+    // Estado de carregamento
+    var isUploading by mutableStateOf(false)
+        private set
+
     init {
-        // --- A MÁGICA ACONTECE AQUI ---
-        // Ficamos "ouvindo" a coleção 'products' na nuvem.
-        // Se alguém adicionar um produto em outro celular, esta lista atualiza sozinha aqui.
+        // Escuta o banco de dados
         db.collection("products")
             .addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    Log.w("Firebase", "Erro ao ouvir dados", e)
-                    return@addSnapshotListener
-                }
-
+                if (e != null) return@addSnapshotListener
                 if (snapshot != null) {
-                    // Converte os documentos do Firebase para seus objetos ManagedProduct
                     products = snapshot.documents.mapNotNull { doc ->
-                        // Tentamos converter automaticamente
-                        val product = try {
-                            // Mapeamento manual para garantir segurança nos tipos
+                        try {
                             ManagedProduct(
                                 id = doc.id,
                                 name = doc.getString("name") ?: "",
@@ -44,7 +46,6 @@ class ManagementViewModel : ViewModel() {
                                 isActive = doc.getBoolean("isActive") ?: true,
                                 category = doc.getString("category") ?: "Geral",
                                 ingredients = (doc.get("ingredients") as? List<String>)?.toSet() ?: emptySet(),
-                                // Para opcionais, simplificamos convertendo do Hashmap do Firebase
                                 optionals = try {
                                     val list = doc.get("optionals") as? List<Map<String, Any>>
                                     list?.map {
@@ -55,24 +56,100 @@ class ManagementViewModel : ViewModel() {
                                     }?.toSet() ?: emptySet()
                                 } catch (e: Exception) { emptySet() }
                             )
-                        } catch (e: Exception) {
-                            null
-                        }
-                        product
+                        } catch (e: Exception) { null }
                     }
                 }
             }
     }
 
-    // --- DADOS TEMPORÁRIOS (Categorias, etc) ---
-    var categories by mutableStateOf(listOf("Lanches", "Bebidas", "Sobremesas", "Acompanhamentos"))
-        private set
-    var ingredients by mutableStateOf(listOf("Pão Brioche", "Carne 150g", "Queijo Cheddar", "Alface", "Tomate"))
-        private set
-    var optionals by mutableStateOf(listOf(OptionalItem("Ovo Extra", 2.50), OptionalItem("Bacon Crocante", 4.00), OptionalItem("Queijo Extra", 3.00)))
-        private set
+    // --- NOVA FUNÇÃO MÁGICA: Salva Imagem como Texto ---
+    fun saveProductWithImage(
+        context: Context,
+        product: ManagedProduct,
+        newImageUri: Uri?,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            isUploading = true
 
-    // --- LÓGICA DO CARDÁPIO ---
+            try {
+                // Se o usuário escolheu uma foto nova, convertemos para Base64
+                val finalImageUrl = if (newImageUri != null) {
+                    compressUriToBase64(context, newImageUri)
+                } else {
+                    product.imageUrl // Mantém a antiga se não trocou
+                }
+
+                // Cria o mapa de dados para salvar
+                val productData = hashMapOf(
+                    "name" to product.name,
+                    "price" to product.price,
+                    "imageUrl" to finalImageUrl, // Aqui vai o texto da imagem
+                    "isActive" to product.isActive,
+                    "category" to product.category,
+                    "ingredients" to product.ingredients.toList(),
+                    "optionals" to product.optionals.toList()
+                )
+
+                // Salva no Firestore
+                if (product.id.isBlank()) {
+                    db.collection("products").add(productData)
+                } else {
+                    db.collection("products").document(product.id).set(productData)
+                }
+
+                isUploading = false
+                // Avisa a tela que acabou
+                viewModelScope.launch(Dispatchers.Main) { onSuccess() }
+
+            } catch (e: Exception) {
+                Log.e("SaveProduct", "Erro ao salvar", e)
+                isUploading = false
+            }
+        }
+    }
+
+    // Função auxiliar que comprime a imagem (Para não lotar o banco grátis)
+    private fun compressUriToBase64(context: Context, uri: Uri): String {
+        return try {
+            val inputStream = context.contentResolver.openInputStream(uri)
+            val originalBitmap = BitmapFactory.decodeStream(inputStream)
+
+            // Redimensiona se for muito grande (máximo 600px de largura)
+            val maxWidth = 600
+            val ratio = maxWidth.toDouble() / originalBitmap.width.toDouble()
+            val newHeight = (originalBitmap.height * ratio).toInt()
+
+            val scaledBitmap = if (originalBitmap.width > maxWidth) {
+                Bitmap.createScaledBitmap(originalBitmap, maxWidth, newHeight, true)
+            } else {
+                originalBitmap
+            }
+
+            // Comprime para JPEG qualidade 60
+            val outputStream = ByteArrayOutputStream()
+            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream)
+            val byteArray = outputStream.toByteArray()
+
+            // CORREÇÃO AQUI: Usamos NO_WRAP para evitar quebras de linha que estragam a imagem
+            "data:image/jpeg;base64," + Base64.encodeToString(byteArray, Base64.NO_WRAP)
+        } catch (e: Exception) {
+            Log.e("Compress", "Erro ao converter imagem", e)
+            ""
+        }
+    }
+
+    fun deleteProduct(product: ManagedProduct) {
+        if (product.id.isNotBlank()) {
+            db.collection("products").document(product.id).delete()
+        }
+    }
+
+    // --- DADOS TEMPORÁRIOS & EDITORES ---
+    var categories by mutableStateOf(listOf("Lanches", "Bebidas", "Sobremesas", "Acompanhamentos"))
+    var ingredients by mutableStateOf(listOf("Pão Brioche", "Carne 150g", "Queijo Cheddar", "Alface", "Tomate"))
+    var optionals by mutableStateOf(listOf(OptionalItem("Ovo Extra", 2.50), OptionalItem("Bacon Crocante", 4.00), OptionalItem("Queijo Extra", 3.00)))
+
     val productsByCategory: List<MenuCategory>
         get() {
             return products.filter { it.isActive }
@@ -82,43 +159,12 @@ class ManagementViewModel : ViewModel() {
                 }
         }
 
-    // --- SALVAR NA NUVEM ---
-    fun upsertProduct(product: ManagedProduct) {
-        // Preparamos os dados para enviar (Firebase prefere Listas a Sets)
-        val productData = hashMapOf(
-            "name" to product.name,
-            "price" to product.price,
-            "imageUrl" to product.imageUrl,
-            "isActive" to product.isActive,
-            "category" to product.category,
-            "ingredients" to product.ingredients.toList(),
-            "optionals" to product.optionals.toList() // O Firebase serializa a classe OptionalItem auto
-        )
-
-        if (product.id.isBlank()) {
-            // Criar Novo: Deixamos o Firebase gerar o ID único
-            db.collection("products").add(productData)
-        } else {
-            // Editar Existente: Usamos o ID para atualizar
-            db.collection("products").document(product.id).set(productData)
-        }
-    }
-
-    // --- DELETAR DA NUVEM ---
-    fun deleteProduct(product: ManagedProduct) {
-        if (product.id.isNotBlank()) {
-            db.collection("products").document(product.id).delete()
-        }
-    }
-
-    // --- EDIÇÃO (Lógica Local) ---
     var productToEdit by mutableStateOf<ManagedProduct?>(null)
         private set
 
     fun loadProductForEdit(product: ManagedProduct) { productToEdit = product }
     fun clearEditState() { productToEdit = null }
 
-    // --- FUNÇÕES AUXILIARES ---
     fun addIngredient(i: String) { if (!ingredients.contains(i)) ingredients = ingredients + i }
     fun deleteIngredient(i: String) { ingredients = ingredients - i }
     fun addCategory(c: String) { if (!categories.contains(c)) categories = categories + c }
