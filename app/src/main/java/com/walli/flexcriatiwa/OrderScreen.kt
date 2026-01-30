@@ -41,13 +41,13 @@ fun OrderScreen(
     onCancelOrder: () -> Unit,
     onAddItem: () -> Unit,
     onEditItem: (OrderItem) -> Unit,
-    onSendToKitchen: () -> Unit
+    onSendToKitchen: () -> Unit,
+    onNavigateBack: () -> Unit // <--- Parâmetro para o botão voltar
 ) {
     val cartItems = orderViewModel.currentCartItems
     val destinationType = orderViewModel.destinationType
     val payments = orderViewModel.payments
 
-    // Correção para garantir que occupiedTables seja observado corretamente
     val occupiedTables by kitchenViewModel.occupiedTables.collectAsState(initial = emptySet())
 
     val allItemsToShow = existingItems + cartItems
@@ -64,6 +64,7 @@ fun OrderScreen(
         cartItems.isNotEmpty() && destinationType != null
     }
 
+    // --- DIÁLOGOS (Mantidos iguais) ---
     if (showDestinationDialog) {
         DestinationDialog(
             initialDestinationType = orderViewModel.destinationType,
@@ -100,6 +101,12 @@ fun OrderScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Pedido", fontWeight = FontWeight.Bold) },
+                // --- BOTÃO DE VOLTAR CONFIGURADO ---
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Voltar")
+                    }
+                },
                 actions = { TextButton(onClick = { showCancellationDialog = true }) { Text("Cancelar") } }
             )
         },
@@ -136,13 +143,25 @@ fun OrderScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // --- ITENS JÁ ENVIADOS (MESA) ---
             if (existingItems.isNotEmpty()) {
-                item { Text("Itens na Mesa", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)) }
-                items(existingItems) { item -> ExistingOrderItemCard(orderItem = item) }
+                item {
+                    Text(
+                        "Itens na Mesa (Já enviados)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                items(existingItems) { item ->
+                    // Agora usamos o visual detalhado para itens existentes também
+                    ExistingOrderItemCard(orderItem = item)
+                }
                 item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
             }
 
-            item { Text(if (existingItems.isNotEmpty()) "Novos Itens" else "Itens", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+            // --- NOVOS ITENS ---
+            item { Text(if (existingItems.isNotEmpty()) "Adicionando Agora" else "Itens do Pedido", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
 
             items(cartItems) { orderItem ->
                 OrderItemCard(
@@ -168,7 +187,7 @@ fun OrderScreen(
             item {
                 val isDestinationDefined = destinationType != null
                 val destinationInfo = when (destinationType) {
-                    "Local" -> if (orderViewModel.tableSelection.isNotEmpty()) "Local - Mesa(s) ${orderViewModel.tableSelection.joinToString(", ")}" else "Local"
+                    "Local" -> if (orderViewModel.tableSelection.isNotEmpty()) "Local - Mesa(s) ${orderViewModel.tableSelection.sorted().joinToString(", ")}" else "Local"
                     "Viagem" -> if (!orderViewModel.clientName.isNullOrBlank()) "Viagem - Cliente: ${orderViewModel.clientName}" else "Viagem"
                     else -> "Não definido"
                 }
@@ -188,10 +207,55 @@ fun OrderScreen(
     }
 }
 
+// --- CARD DETALHADO PARA ITENS EXISTENTES ---
 @Composable
 fun ExistingOrderItemCard(orderItem: OrderItem) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(text = "${orderItem.quantity}x ${orderItem.menuItem.name}", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), style = MaterialTheme.typography.bodyLarge)
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            // Título
+            Text(
+                text = "${orderItem.quantity}x ${orderItem.menuItem.name}",
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+
+            // Detalhes (Sem, Com, Ponto, Obs) - MESMA LÓGICA DO CARD NOVO
+            val labelStyle = SpanStyle(fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            val valueStyle = SpanStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+            if (orderItem.removedIngredients.isNotEmpty()) {
+                Text(buildAnnotatedString {
+                    withStyle(labelStyle) { append("Sem: ") }
+                    withStyle(valueStyle.copy(color = Color.Red)) { append(orderItem.removedIngredients.joinToString(", ")) }
+                })
+            }
+            if (orderItem.additionalIngredients.isNotEmpty()) {
+                val addText = orderItem.additionalIngredients.map { (name, qtd) -> if (qtd > 1) "$name (x$qtd)" else name }.joinToString(", ")
+                Text(buildAnnotatedString {
+                    withStyle(labelStyle) { append("Com: ") }
+                    withStyle(valueStyle.copy(color = Color(0xFF388E3C))) { append(addText) }
+                })
+            }
+            orderItem.meatDoneness?.let {
+                Text(buildAnnotatedString {
+                    withStyle(labelStyle) { append("Ponto: ") }
+                    withStyle(valueStyle) { append(it) }
+                })
+            }
+            orderItem.observations?.takeIf { it.isNotBlank() }?.let {
+                Text(buildAnnotatedString {
+                    withStyle(labelStyle) { append("Obs: ") }
+                    withStyle(valueStyle) { append(it) }
+                })
+            }
+        }
     }
 }
 
@@ -242,15 +306,8 @@ fun OrderItemCard(orderItem: OrderItem, onQuantityChange: (Int) -> Unit, onEdit:
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun OrderScreenPreview() {
-    val previewOrderViewModel = viewModel<OrderViewModel>()
-    val previewKitchenViewModel = viewModel<KitchenViewModel>()
-    OrderScreen(previewOrderViewModel, previewKitchenViewModel, emptyList(), {}, {}, {}, {})
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
+// Mantenha as outras funções auxiliares (DestinationDialog, PaymentDialog, CancellationDialog, etc.) que já estavam no arquivo original.
+// Se precisar, posso reenviá-las, mas elas não mudaram.
 @Composable
 fun DestinationDialog(
     onDismiss: () -> Unit,
@@ -458,25 +515,6 @@ private fun SectionWithChips(title: String, options: List<String>, selectedOptio
         }
     }
 }
-
-class CurrencyVisualTransformation(private val currencySymbol: String = "R$ ", private val thousandsSeparator: Char = '.') : VisualTransformation {
-    override fun filter(text: AnnotatedString): TransformedText {
-        val digitsOnly = text.text.filter { it.isDigit() }
-        val intValue = digitsOnly.toLongOrNull() ?: 0L
-        val formattedNumber = intValue.toString().padStart(3, '0')
-        val integerPart = formattedNumber.dropLast(2)
-        val decimalPart = formattedNumber.takeLast(2)
-        val formattedIntegerPart = integerPart.reversed().chunked(3).joinToString(separator = thousandsSeparator.toString()).reversed()
-        val maskedText = currencySymbol + formattedIntegerPart + ',' + decimalPart
-        val offsetMapping = object : OffsetMapping {
-            override fun originalToTransformed(offset: Int) = maskedText.length
-            override fun transformedToOriginal(offset: Int) = digitsOnly.length
-        }
-        return TransformedText(AnnotatedString(maskedText), offsetMapping)
-    }
-}
-
-// Classe SplitPayment removida daqui (já está no MenuData.kt)
 
 @Composable
 fun CancellationDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {

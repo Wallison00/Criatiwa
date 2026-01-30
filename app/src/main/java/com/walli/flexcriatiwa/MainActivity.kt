@@ -152,9 +152,31 @@ fun AppNavigation() {
                 emptyList()
             }
 
-            // Limpa o carrinho ao entrar em uma mesa específica para evitar misturar pedidos
+            // --- CORREÇÃO AQUI: Recupera os dados da mesa para o cabeçalho ---
             LaunchedEffect(tableNumber) {
-                if (tableNumber != null) orderViewModel.clearAll()
+                if (tableNumber != null) {
+                    // 1. Limpa o carrinho de novos itens
+                    orderViewModel.clearAll()
+
+                    // 2. Busca o pedido ativo dessa mesa
+                    val activeOrder = kitchenViewModel.ordersByTable.value[tableNumber]?.firstOrNull()
+
+                    if (activeOrder != null) {
+                        // 3. Preenche o cabeçalho com os dados reais
+                        orderViewModel.updateDestination(
+                            newDestinationType = activeOrder.destinationType ?: "Local",
+                            newTables = activeOrder.tableSelection,
+                            newClientName = activeOrder.clientName ?: ""
+                        )
+                    } else {
+                        // 4. Se for mesa vazia, preenche o básico
+                        orderViewModel.updateDestination(
+                            newDestinationType = "Local",
+                            newTables = setOf(tableNumber),
+                            newClientName = ""
+                        )
+                    }
+                }
             }
 
             OrderScreen(
@@ -196,7 +218,8 @@ fun AppNavigation() {
                     navController.navigate("main_layout") {
                         popUpTo("main_layout") { inclusive = true }
                     }
-                }
+                },
+                onNavigateBack = { navController.popBackStack() } // O botão voltar funciona aqui
             )
         }
     }
@@ -264,15 +287,15 @@ fun MainAppLayout(
             )
             1 -> KitchenScreen(
                 kitchenViewModel = kitchenViewModel,
-                onOpenDrawer = { scope.launch { drawerState.open() } } // PASSANDO O CALLBACK
+                onOpenDrawer = { scope.launch { drawerState.open() } }
             )
             2 -> CounterScreen(
                 kitchenViewModel = kitchenViewModel,
-                onOpenDrawer = { scope.launch { drawerState.open() } } // PASSANDO O CALLBACK
+                onOpenDrawer = { scope.launch { drawerState.open() } }
             )
             3 -> TableScreen(
                 kitchenViewModel = kitchenViewModel,
-                onOpenDrawer = { scope.launch { drawerState.open() } }, // PASSANDO O CALLBACK
+                onOpenDrawer = { scope.launch { drawerState.open() } },
                 onTableClick = { tableNum -> navController.navigate("order_summary/$tableNum") }
             )
             4 -> ManagementHubScreen(
@@ -404,7 +427,7 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
         try {
             if (item.imageUrl.startsWith("data:image")) {
                 val base64String = item.imageUrl.substringAfter(",")
-                val decodedBytes = Base64.decode(base64String, Base64.DEFAULT)
+                val decodedBytes = android.util.Base64.decode(base64String, android.util.Base64.DEFAULT)
                 BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
                     ?.asImageBitmap()
             } else null

@@ -27,6 +27,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+// Se CurrencyVisualTransformation estiver em MenuData.kt no mesmo pacote, o import não é necessário,
+// mas se o compilador reclamar, verifique se o package no topo é igual: com.walli.flexcriatiwa
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,7 +86,7 @@ fun AddEditProductScreen(
 
                         val productToSave = ManagedProduct(
                             id = productBeingEdited?.id ?: "",
-                            code = productBeingEdited?.code ?: 0, // <--- Mantém o código ao editar
+                            code = productBeingEdited?.code ?: 0,
                             name = productName,
                             price = priceDouble,
                             imageUrl = existingImageUrl,
@@ -161,6 +163,7 @@ fun AddEditProductScreen(
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("R$ 0,00") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        // Usa a classe do MenuData.kt
                         visualTransformation = CurrencyVisualTransformation()
                     )
                 }
