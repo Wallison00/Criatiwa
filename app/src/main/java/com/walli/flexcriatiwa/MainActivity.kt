@@ -122,7 +122,7 @@ fun AppNavigation() {
             if (managedProduct != null) {
                 val menuItem = MenuItem(
                     id = managedProduct.id,
-                    code = managedProduct.code, // Passa o código também
+                    code = managedProduct.code,
                     name = managedProduct.name,
                     price = managedProduct.price,
                     imageUrl = managedProduct.imageUrl
@@ -150,6 +150,11 @@ fun AppNavigation() {
                 kitchenViewModel.ordersByTable.value[tableNumber]?.flatMap { it.items } ?: emptyList()
             } else {
                 emptyList()
+            }
+
+            // Limpa o carrinho ao entrar em uma mesa específica para evitar misturar pedidos
+            LaunchedEffect(tableNumber) {
+                if (tableNumber != null) orderViewModel.clearAll()
             }
 
             OrderScreen(
@@ -257,10 +262,17 @@ fun MainAppLayout(
                 onNavigateToItemDetail = { itemId -> navController.navigate("detail/$itemId") },
                 onNavigateToOrder = { navController.navigate("order_summary/null") }
             )
-            1 -> KitchenScreen(kitchenViewModel = kitchenViewModel)
-            2 -> CounterScreen(kitchenViewModel = kitchenViewModel)
+            1 -> KitchenScreen(
+                kitchenViewModel = kitchenViewModel,
+                onOpenDrawer = { scope.launch { drawerState.open() } } // PASSANDO O CALLBACK
+            )
+            2 -> CounterScreen(
+                kitchenViewModel = kitchenViewModel,
+                onOpenDrawer = { scope.launch { drawerState.open() } } // PASSANDO O CALLBACK
+            )
             3 -> TableScreen(
                 kitchenViewModel = kitchenViewModel,
+                onOpenDrawer = { scope.launch { drawerState.open() } }, // PASSANDO O CALLBACK
                 onTableClick = { tableNum -> navController.navigate("order_summary/$tableNum") }
             )
             4 -> ManagementHubScreen(
@@ -422,10 +434,9 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
                     }
                 }
 
-                // --- AQUI ESTÁ O CHIP DE NUMERAÇÃO RESTAURADO ---
                 if (item.code > 0) {
                     Text(
-                        text = "#%03d".format(item.code), // Exibe #001
+                        text = "#%03d".format(item.code),
                         color = Color.White,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)

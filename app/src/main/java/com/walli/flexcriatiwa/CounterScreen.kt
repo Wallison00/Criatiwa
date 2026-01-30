@@ -3,6 +3,8 @@ package com.walli.flexcriatiwa
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -14,28 +16,45 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CounterScreen(kitchenViewModel: KitchenViewModel) {
+fun CounterScreen(
+    kitchenViewModel: KitchenViewModel,
+    onOpenDrawer: () -> Unit
+) {
     val readyOrders by kitchenViewModel.readyOrders.collectAsState(initial = emptyList())
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Balcão de Entrega", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text("Pedidos Prontos aguardando retirada", fontSize = 14.sp, color = Color.Gray)
-        Spacer(modifier = Modifier.height(16.dp))
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Balcão", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(16.dp)) {
+            Text("Balcão de Entrega", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("Pedidos Prontos aguardando retirada", fontSize = 14.sp, color = Color.Gray)
+            Spacer(modifier = Modifier.height(16.dp))
 
-        if (readyOrders.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Nenhum pedido pronto para entrega.")
-            }
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(readyOrders) { order ->
-                    CounterOrderCard(
-                        order = order,
-                        onDeliver = {
-                            kitchenViewModel.updateOrderStatus(order.id, OrderStatus.DELIVERED)
-                        }
-                    )
+            if (readyOrders.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Nenhum pedido pronto para entrega.")
+                }
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(readyOrders) { order ->
+                        CounterOrderCard(
+                            order = order,
+                            onDeliver = {
+                                kitchenViewModel.updateOrderStatus(order.id, OrderStatus.DELIVERED)
+                            }
+                        )
+                    }
                 }
             }
         }

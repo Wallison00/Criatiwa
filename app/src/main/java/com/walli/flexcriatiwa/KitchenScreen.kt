@@ -1,8 +1,11 @@
 package com.walli.flexcriatiwa
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,8 +16,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun KitchenScreen(kitchenViewModel: KitchenViewModel) {
+fun KitchenScreen(
+    kitchenViewModel: KitchenViewModel,
+    onOpenDrawer: () -> Unit
+) {
     val orders by kitchenViewModel.kitchenOrders.collectAsState(initial = emptyList())
 
     var currentTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -25,24 +32,37 @@ fun KitchenScreen(kitchenViewModel: KitchenViewModel) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Fila de Preparo", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(16.dp))
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Cozinha", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(16.dp)) {
+            Text("Fila de Preparo", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(16.dp))
 
-        if (orders.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Cozinha Livre! Sem pedidos pendentes.")
-            }
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(orders) { order ->
-                    KitchenOrderCard(
-                        order = order,
-                        currentTime = currentTime,
-                        onAdvanceStatus = {
-                            kitchenViewModel.updateOrderStatus(order.id, OrderStatus.READY)
-                        }
-                    )
+            if (orders.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Cozinha Livre! Sem pedidos pendentes.")
+                }
+            } else {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(orders) { order ->
+                        KitchenOrderCard(
+                            order = order,
+                            currentTime = currentTime,
+                            onAdvanceStatus = {
+                                kitchenViewModel.updateOrderStatus(order.id, OrderStatus.READY)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -60,7 +80,6 @@ fun KitchenOrderCard(
         else -> Color.Gray
     }
 
-    // Cálculo seguro de tempo
     val elapsedTimeMillis = currentTime - order.timestamp
     val elapsedSeconds = elapsedTimeMillis / 1000
     val minutes = elapsedSeconds / 60
