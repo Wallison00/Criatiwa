@@ -16,7 +16,6 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun CounterScreen(kitchenViewModel: KitchenViewModel) {
-    // CORREÇÃO: Observa 'readyOrders' (List<KitchenOrder>)
     val readyOrders by kitchenViewModel.readyOrders.collectAsState(initial = emptyList())
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -34,7 +33,6 @@ fun CounterScreen(kitchenViewModel: KitchenViewModel) {
                     CounterOrderCard(
                         order = order,
                         onDeliver = {
-                            // CORREÇÃO: Usa Enum correto
                             kitchenViewModel.updateOrderStatus(order.id, OrderStatus.DELIVERED)
                         }
                     )
@@ -45,12 +43,9 @@ fun CounterScreen(kitchenViewModel: KitchenViewModel) {
 }
 
 @Composable
-fun CounterOrderCard(
-    order: KitchenOrder, // CORREÇÃO: Recebe KitchenOrder
-    onDeliver: () -> Unit
-) {
+fun CounterOrderCard(order: KitchenOrder, onDeliver: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)), // Verde claro
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -60,16 +55,11 @@ fun CounterOrderCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val title = if (order.destinationType == "Local")
-                    "MESA ${order.tableSelection.joinToString(", ")}"
+                    "MESA ${order.tableSelection.sorted().joinToString(", ")}"
                 else
                     "SENHA: ${order.clientName ?: "Anon"}"
 
-                Text(
-                    text = title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    color = Color(0xFF2E7D32)
-                )
+                Text(text = title, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color(0xFF2E7D32))
                 Text("#${order.id.toString().takeLast(4)}", color = Color.Gray)
             }
 

@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
@@ -121,6 +122,7 @@ fun AppNavigation() {
             if (managedProduct != null) {
                 val menuItem = MenuItem(
                     id = managedProduct.id,
+                    code = managedProduct.code, // Passa o código também
                     name = managedProduct.name,
                     price = managedProduct.price,
                     imageUrl = managedProduct.imageUrl
@@ -386,7 +388,6 @@ fun MainScreen(
 
 @Composable
 fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
-    // --- LÓGICA DE DECODIFICAÇÃO MANUAL DA IMAGEM ---
     val decodedBitmap = remember(item.imageUrl) {
         try {
             if (item.imageUrl.startsWith("data:image")) {
@@ -395,10 +396,7 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
                 BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
                     ?.asImageBitmap()
             } else null
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
+        } catch (e: Exception) { null }
     }
 
     Column(
@@ -422,6 +420,21 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
                     Box(modifier = Modifier.fillMaxSize().background(Color.LightGray), contentAlignment = Alignment.Center) {
                         Icon(Icons.Default.RestaurantMenu, contentDescription = null, tint = Color.White)
                     }
+                }
+
+                // --- AQUI ESTÁ O CHIP DE NUMERAÇÃO RESTAURADO ---
+                if (item.code > 0) {
+                    Text(
+                        text = "#%03d".format(item.code), // Exibe #001
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

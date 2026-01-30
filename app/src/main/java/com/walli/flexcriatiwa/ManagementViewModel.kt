@@ -16,22 +16,18 @@ import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
-import java.util.UUID
 
 class ManagementViewModel : ViewModel() {
 
     private val db = Firebase.firestore
 
-    // Lista de produtos que a tela vê
     var products by mutableStateOf<List<ManagedProduct>>(emptyList())
         private set
 
-    // Estado de carregamento
     var isUploading by mutableStateOf(false)
         private set
 
     init {
-        // Escuta o banco de dados
         db.collection("products")
             .addSnapshotListener { snapshot, e ->
                 if (e != null) return@addSnapshotListener
@@ -40,6 +36,7 @@ class ManagementViewModel : ViewModel() {
                         try {
                             ManagedProduct(
                                 id = doc.id,
+                                code = (doc.get("code") as? Number)?.toInt() ?: 0,
                                 name = doc.getString("name") ?: "",
                                 price = doc.getDouble("price") ?: 0.0,
                                 imageUrl = doc.getString("imageUrl") ?: "",
@@ -62,7 +59,6 @@ class ManagementViewModel : ViewModel() {
             }
     }
 
-    // --- NOVA FUNÇÃO MÁGICA: Salva Imagem como Texto ---
     fun saveProductWithImage(
         context: Context,
         product: ManagedProduct,
@@ -73,25 +69,29 @@ class ManagementViewModel : ViewModel() {
             isUploading = true
 
             try {
-                // Se o usuário escolheu uma foto nova, convertemos para Base64
                 val finalImageUrl = if (newImageUri != null) {
                     compressUriToBase64(context, newImageUri)
                 } else {
-                    product.imageUrl // Mantém a antiga se não trocou
+                    product.imageUrl
                 }
 
-                // Cria o mapa de dados para salvar
+                val nextCode = if (product.id.isBlank()) {
+                    (products.maxOfOrNull { it.code } ?: 0) + 1
+                } else {
+                    product.code
+                }
+
                 val productData = hashMapOf(
+                    "code" to nextCode,
                     "name" to product.name,
                     "price" to product.price,
-                    "imageUrl" to finalImageUrl, // Aqui vai o texto da imagem
+                    "imageUrl" to finalImageUrl,
                     "isActive" to product.isActive,
                     "category" to product.category,
                     "ingredients" to product.ingredients.toList(),
                     "optionals" to product.optionals.toList()
                 )
 
-                // Salva no Firestore
                 if (product.id.isBlank()) {
                     db.collection("products").add(productData)
                 } else {
@@ -99,7 +99,6 @@ class ManagementViewModel : ViewModel() {
                 }
 
                 isUploading = false
-                // Avisa a tela que acabou
                 viewModelScope.launch(Dispatchers.Main) { onSuccess() }
 
             } catch (e: Exception) {
@@ -109,13 +108,11 @@ class ManagementViewModel : ViewModel() {
         }
     }
 
-    // Função auxiliar que comprime a imagem (Para não lotar o banco grátis)
     private fun compressUriToBase64(context: Context, uri: Uri): String {
         return try {
             val inputStream = context.contentResolver.openInputStream(uri)
             val originalBitmap = BitmapFactory.decodeStream(inputStream)
 
-            // Redimensiona se for muito grande (máximo 600px de largura)
             val maxWidth = 600
             val ratio = maxWidth.toDouble() / originalBitmap.width.toDouble()
             val newHeight = (originalBitmap.height * ratio).toInt()
@@ -126,17 +123,12 @@ class ManagementViewModel : ViewModel() {
                 originalBitmap
             }
 
-            // Comprime para JPEG qualidade 60
             val outputStream = ByteArrayOutputStream()
             scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream)
             val byteArray = outputStream.toByteArray()
 
-            // CORREÇÃO AQUI: Usamos NO_WRAP para evitar quebras de linha que estragam a imagem
             "data:image/jpeg;base64," + Base64.encodeToString(byteArray, Base64.NO_WRAP)
-        } catch (e: Exception) {
-            Log.e("Compress", "Erro ao converter imagem", e)
-            ""
-        }
+        } catch (e: Exception) { "" }
     }
 
     fun deleteProduct(product: ManagedProduct) {
@@ -145,17 +137,26 @@ class ManagementViewModel : ViewModel() {
         }
     }
 
-    // --- DADOS TEMPORÁRIOS & EDITORES ---
     var categories by mutableStateOf(listOf("Lanches", "Bebidas", "Sobremesas", "Acompanhamentos"))
     var ingredients by mutableStateOf(listOf("Pão Brioche", "Carne 150g", "Queijo Cheddar", "Alface", "Tomate"))
     var optionals by mutableStateOf(listOf(OptionalItem("Ovo Extra", 2.50), OptionalItem("Bacon Crocante", 4.00), OptionalItem("Queijo Extra", 3.00)))
 
+    // --- AQUI ESTÁ A ATUALIZAÇÃO IMPORTANTE ---
     val productsByCategory: List<MenuCategory>
         get() {
             return products.filter { it.isActive }
                 .groupBy { it.category }
                 .map { (catName, items) ->
-                    MenuCategory(catName, items.map { MenuItem(it.id, it.name, it.price, it.imageUrl) })
+                    MenuCategory(catName, items.map {
+                        // Mapeia o ManagedProduct (com code) para MenuItem (com code)
+                        MenuItem(
+                            id = it.id,
+                            code = it.code, // <--- Passando o código aqui
+                            name = it.name,
+                            price = it.price,
+                            imageUrl = it.imageUrl
+                        )
+                    })
                 }
         }
 

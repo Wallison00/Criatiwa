@@ -1,5 +1,6 @@
 package com.walli.flexcriatiwa
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -17,12 +18,9 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun TableScreen(
     kitchenViewModel: KitchenViewModel,
-    onTableClick: (Int) -> Unit = {} // <--- Adicione este parâmetro se não tiver
+    onTableClick: (Int) -> Unit = {}
 ) {
-    // Mapa de Mesa -> Lista de Pedidos
-    val ordersByTable by kitchenViewModel.ordersByTable.collectAsState()
-
-    // Lista de mesas (simulação de 1 a 20)
+    val ordersByTable by kitchenViewModel.ordersByTable.collectAsState(initial = emptyMap())
     val tables = (1..20).toList()
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -38,7 +36,7 @@ fun TableScreen(
                 val tableOrders = ordersByTable[tableNum] ?: emptyList()
                 val isOccupied = tableOrders.isNotEmpty()
 
-                // Calcula total da conta da mesa
+                // Calcula total da conta da mesa com segurança de tipos
                 val totalBill = tableOrders.sumOf { order ->
                     order.items.sumOf { item -> item.singleItemTotalPrice * item.quantity }
                 }
@@ -46,7 +44,8 @@ fun TableScreen(
                 TableCard(
                     tableNumber = tableNum,
                     isOccupied = isOccupied,
-                    totalBill = totalBill
+                    totalBill = totalBill,
+                    modifier = Modifier.clickable { onTableClick(tableNum) }
                 )
             }
         }
@@ -54,12 +53,12 @@ fun TableScreen(
 }
 
 @Composable
-fun TableCard(tableNumber: Int, isOccupied: Boolean, totalBill: Double) {
+fun TableCard(tableNumber: Int, isOccupied: Boolean, totalBill: Double, modifier: Modifier = Modifier) {
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = if (isOccupied) Color(0xFFFFEBEE) else Color(0xFFE3F2FD) // Vermelho claro (ocupado) ou Azul claro (livre)
+            containerColor = if (isOccupied) Color(0xFFFFEBEE) else Color(0xFFE3F2FD)
         ),
-        modifier = Modifier.height(100.dp)
+        modifier = modifier.height(100.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(8.dp),

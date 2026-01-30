@@ -38,6 +38,11 @@ fun ProductManagementScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var productToDelete by remember { mutableStateOf<ManagedProduct?>(null) }
 
+    // Ordena a lista pelo código (1, 2, 3...)
+    val sortedProducts = remember(managementViewModel.products) {
+        managementViewModel.products.sortedBy { it.code }
+    }
+
     if (showDeleteDialog && productToDelete != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -87,7 +92,7 @@ fun ProductManagementScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(managementViewModel.products, key = { it.id }) { product ->
+            items(sortedProducts, key = { it.id }) { product ->
                 ProductListItem(
                     product = product,
                     onClick = { onEditProduct(product) },
@@ -101,9 +106,10 @@ fun ProductManagementScreen(
     }
 }
 
-// --- DATA CLASS PARA O PRODUTO ---
+// --- CLASSE DE DADOS (IMPORTANTE: MANTENHA O CAMPO CODE AQUI) ---
 data class ManagedProduct(
     val id: String,
+    val code: Int = 0, // O padrão é 0 para produtos antigos
     val name: String,
     val price: Double,
     val imageUrl: String,
@@ -113,14 +119,12 @@ data class ManagedProduct(
     val optionals: Set<OptionalItem>
 )
 
-// --- ITEM DA LISTA COM DECODIFICAÇÃO MANUAL ---
 @Composable
 fun ProductListItem(
     product: ManagedProduct,
     onClick: () -> Unit,
     onDeleteClick: () -> Unit
 ) {
-    // --- O SEGREDO ESTÁ AQUI: Decodifica a string Base64 para Imagem ---
     val decodedBitmap = remember(product.imageUrl) {
         try {
             if (product.imageUrl.startsWith("data:image")) {
@@ -142,59 +146,31 @@ fun ProductListItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Imagem do produto
-            Card(
-                modifier = Modifier.size(80.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
+            Card(modifier = Modifier.size(80.dp), shape = RoundedCornerShape(12.dp)) {
                 if (decodedBitmap != null) {
-                    Image(
-                        bitmap = decodedBitmap,
-                        contentDescription = product.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
+                    Image(bitmap = decodedBitmap, contentDescription = product.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 } else {
-                    // Fallback para placeholder se não tiver imagem
-                    Image(
-                        painter = rememberAsyncImagePainter(product.imageUrl), // Tenta o coil ou falha silenciada
-                        contentDescription = product.name,
-                        modifier = Modifier.fillMaxSize().background(Color.LightGray),
-                        contentScale = ContentScale.Crop
-                    )
+                    Image(painter = rememberAsyncImagePainter(product.imageUrl), contentDescription = product.name, modifier = Modifier.fillMaxSize().background(Color.LightGray), contentScale = ContentScale.Crop)
                 }
             }
 
-            // Coluna com as informações
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                // MOSTRA O CÓDIGO DO PRODUTO (Ex: #001)
+                Text(
+                    text = "#%03d - %s".format(product.code, product.name),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
                 Text("R$ ${"%.2f".format(product.price)}", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
 
-                // Status (Ativo/Inativo)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Box(
-                        modifier = Modifier.size(8.dp).background(
-                            color = if (product.isActive) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
-                            shape = CircleShape
-                        )
-                    )
-                    Text(
-                        text = if (product.isActive) "Ativo" else "Inativo",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (product.isActive) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
-                    )
+                    Box(modifier = Modifier.size(8.dp).background(color = if (product.isActive) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error, shape = CircleShape))
+                    Text(text = if (product.isActive) "Ativo" else "Inativo", style = MaterialTheme.typography.bodySmall, color = if (product.isActive) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error)
                 }
             }
 
             IconButton(onClick = onDeleteClick) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Deletar ${product.name}",
-                    tint = MaterialTheme.colorScheme.error
-                )
+                Icon(Icons.Default.Delete, contentDescription = "Deletar", tint = MaterialTheme.colorScheme.error)
             }
         }
     }

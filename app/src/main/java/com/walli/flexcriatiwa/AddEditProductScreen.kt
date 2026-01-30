@@ -48,7 +48,6 @@ fun AddEditProductScreen(
     var newSelectedImageUri by remember { mutableStateOf<Uri?>(null) }
     val existingImageUrl = productBeingEdited?.imageUrl ?: ""
 
-    // Decodificador manual para mostrar a imagem antiga
     val existingBitmap = remember(existingImageUrl) {
         try {
             if (existingImageUrl.startsWith("data:image")) {
@@ -82,8 +81,10 @@ fun AddEditProductScreen(
                 Button(
                     onClick = {
                         val priceDouble = (productPrice.toLongOrNull() ?: 0L) / 100.0
+
                         val productToSave = ManagedProduct(
                             id = productBeingEdited?.id ?: "",
+                            code = productBeingEdited?.code ?: 0, // <--- Mantém o código ao editar
                             name = productName,
                             price = priceDouble,
                             imageUrl = existingImageUrl,
@@ -130,10 +131,8 @@ fun AddEditProductScreen(
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         if (newSelectedImageUri != null) {
-                            // Imagem nova da galeria
                             AsyncImage(model = newSelectedImageUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         } else if (existingBitmap != null) {
-                            // Imagem decodificada do banco
                             Image(bitmap = existingBitmap, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         } else {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {

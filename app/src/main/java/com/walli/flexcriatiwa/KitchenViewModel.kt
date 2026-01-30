@@ -5,41 +5,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
-import com.google.firebase.firestore.Query
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 
-// 1. Modelo de dados para um pedido enviado à cozinha
-data class KitchenOrder(
-    val id: Long = 0, // Usaremos o timestamp como ID numérico para compatibilidade
-    val firebaseId: String = "", // ID do documento no Firebase (String)
-    val items: List<OrderItem>,
-    val timestamp: Long = System.currentTimeMillis(),
-    val status: OrderStatus = OrderStatus.PREPARING,
-    val destinationType: String?,
-    val tableSelection: Set<Int>,
-    val clientName: String?,
-    val payments: List<SplitPayment>
-)
-
-// 2. Enum para os status do pedido
-enum class OrderStatus {
-    PREPARING,
-    READY,
-    DELIVERED
-}
-
-// 3. O ViewModel que gerencia a lógica da cozinha
 class KitchenViewModel : ViewModel() {
 
     private val db = Firebase.firestore
     private val _allActiveOrders = MutableStateFlow<List<KitchenOrder>>(emptyList())
 
-    // --- FLUXOS PÚBLICOS PARA A UI ---
+    // --- FLUXOS PÚBLICOS ---
 
     val kitchenOrders: StateFlow<List<KitchenOrder>> = _allActiveOrders.map { orders ->
         orders.filter { it.status == OrderStatus.PREPARING }
-            .sortedBy { it.timestamp } // Mais antigos primeiro
+            .sortedBy { it.timestamp }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val readyOrders: StateFlow<List<KitchenOrder>> = _allActiveOrders.map { orders ->
@@ -67,9 +45,8 @@ class KitchenViewModel : ViewModel() {
     }
 
     init {
-        // --- ESCUTA EM TEMPO REAL DO FIREBASE ---
         db.collection("orders")
-            .whereNotEqualTo("status", "DELIVERED") // Otimização: não baixa pedidos entregues
+            .whereNotEqualTo("status", "DELIVERED")
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
                     Log.w("KitchenVM", "Erro ao ouvir pedidos", e)
@@ -79,7 +56,6 @@ class KitchenViewModel : ViewModel() {
                 if (snapshot != null) {
                     val ordersList = snapshot.documents.mapNotNull { doc ->
                         try {
-                            // Conversão manual segura
                             val itemsList = (doc.get("items") as? List<Map<String, Any>>)?.map { mapToOrderItem(it) } ?: emptyList()
                             val tablesList = (doc.get("tableSelection") as? List<Number>)?.map { it.toInt() }?.toSet() ?: emptySet()
                             val paymentsList = (doc.get("payments") as? List<Map<String, Any>>)?.map {
@@ -110,7 +86,7 @@ class KitchenViewModel : ViewModel() {
             }
     }
 
-    // --- FUNÇÕES DE AÇÃO (ENVIA PARA O FIREBASE) ---
+    // --- AÇÕES ---
 
     fun submitNewOrder(
         items: List<OrderItem>,
@@ -127,7 +103,7 @@ class KitchenViewModel : ViewModel() {
             "timestamp" to timestamp,
             "status" to OrderStatus.PREPARING.name,
             "destinationType" to destinationType,
-            "tableSelection" to tableSelection.toList(), // Firebase prefere List a Set
+            "tableSelection" to tableSelection.toList(),
             "clientName" to clientName,
             "items" to items.map { orderItemToMap(it) },
             "payments" to payments.map { mapOf("amount" to it.amount, "method" to it.method) }
@@ -137,19 +113,14 @@ class KitchenViewModel : ViewModel() {
             .addOnFailureListener { e -> Log.e("KitchenVM", "Erro ao salvar pedido", e) }
     }
 
-    fun addItemsToTableOrder(
-        tableNumber: Int,
-        newItems: List<OrderItem>
-    ) {
+    fun addItemsToTableOrder(tableNumber: Int, newItems: List<OrderItem>) {
         if (newItems.isEmpty()) return
 
-        // Procura se já tem um pedido aberto dessa mesa no Firebase
         val existingOrder = _allActiveOrders.value.find {
             it.tableSelection.contains(tableNumber) && it.status != OrderStatus.DELIVERED
         }
 
         if (existingOrder != null) {
-            // Se já existe, adiciona os novos itens ao pedido existente
             val currentItemsMaps = existingOrder.items.map { orderItemToMap(it) }
             val newItemsMaps = newItems.map { orderItemToMap(it) }
             val allItems = currentItemsMaps + newItemsMaps
@@ -158,26 +129,20 @@ class KitchenViewModel : ViewModel() {
                 .update(
                     mapOf(
                         "items" to allItems,
-                        "status" to OrderStatus.PREPARING.name // Volta para preparando se adicionar item
+                        "status" to OrderStatus.PREPARING.name
                     )
                 )
         } else {
-            // Se não achar (erro de sincronia?), cria novo
             submitNewOrder(newItems, "Local", setOf(tableNumber), "Mesa $tableNumber", emptyList())
         }
     }
 
     fun updateOrderStatus(numericId: Long, newStatus: OrderStatus) {
-        // Encontra o ID real do documento (String) usando o ID numérico (timestamp)
         val order = _allActiveOrders.value.find { it.id == numericId } ?: return
-
-        db.collection("orders").document(order.firebaseId)
-            .update("status", newStatus.name)
+        db.collection("orders").document(order.firebaseId).update("status", newStatus.name)
     }
 
-    // --- HELPER FUNCTIONS (MAPERS) ---
-    // Convertem seus objetos Kotlin para Mapas que o Firebase entende bem
-
+    // --- MAPPERS ---
     private fun orderItemToMap(item: OrderItem): Map<String, Any?> {
         return mapOf(
             "menuItemId" to item.menuItem.id,
@@ -186,7 +151,7 @@ class KitchenViewModel : ViewModel() {
             "menuItemImage" to item.menuItem.imageUrl,
             "quantity" to item.quantity,
             "removedIngredients" to item.removedIngredients,
-            "additionalIngredients" to item.additionalIngredients, // Map<String, Int> salva direto
+            "additionalIngredients" to item.additionalIngredients,
             "meatDoneness" to item.meatDoneness,
             "observations" to item.observations,
             "singleItemTotalPrice" to item.singleItemTotalPrice

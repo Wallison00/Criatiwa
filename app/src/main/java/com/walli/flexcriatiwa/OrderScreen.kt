@@ -47,7 +47,7 @@ fun OrderScreen(
     val destinationType = orderViewModel.destinationType
     val payments = orderViewModel.payments
 
-    // CORREÇÃO: Adicionado initial = emptySet() para corrigir a inferência de tipo
+    // Correção para garantir que occupiedTables seja observado corretamente
     val occupiedTables by kitchenViewModel.occupiedTables.collectAsState(initial = emptySet())
 
     val allItemsToShow = existingItems + cartItems
@@ -139,7 +139,7 @@ fun OrderScreen(
             if (existingItems.isNotEmpty()) {
                 item { Text("Itens na Mesa", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)) }
                 items(existingItems) { item -> ExistingOrderItemCard(orderItem = item) }
-                item { Divider(modifier = Modifier.padding(vertical = 8.dp)) }
+                item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
             }
 
             item { Text(if (existingItems.isNotEmpty()) "Novos Itens" else "Itens", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
@@ -476,7 +476,7 @@ class CurrencyVisualTransformation(private val currencySymbol: String = "R$ ", p
     }
 }
 
-data class SplitPayment(val amount: Double, val method: String)
+// Classe SplitPayment removida daqui (já está no MenuData.kt)
 
 @Composable
 fun CancellationDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {

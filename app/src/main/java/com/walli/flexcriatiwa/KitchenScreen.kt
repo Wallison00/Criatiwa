@@ -1,6 +1,5 @@
 package com.walli.flexcriatiwa
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,10 +15,9 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun KitchenScreen(kitchenViewModel: KitchenViewModel) {
-    // CORREÇÃO: Observa 'kitchenOrders' (que é List<KitchenOrder>)
     val orders by kitchenViewModel.kitchenOrders.collectAsState(initial = emptyList())
 
-    var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
+    var currentTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while(true) {
             delay(1000)
@@ -42,7 +40,6 @@ fun KitchenScreen(kitchenViewModel: KitchenViewModel) {
                         order = order,
                         currentTime = currentTime,
                         onAdvanceStatus = {
-                            // CORREÇÃO: Usa a função updateOrderStatus com o Enum correto
                             kitchenViewModel.updateOrderStatus(order.id, OrderStatus.READY)
                         }
                     )
@@ -54,15 +51,16 @@ fun KitchenScreen(kitchenViewModel: KitchenViewModel) {
 
 @Composable
 fun KitchenOrderCard(
-    order: KitchenOrder, // CORREÇÃO: Recebe KitchenOrder
+    order: KitchenOrder,
     currentTime: Long,
     onAdvanceStatus: () -> Unit
 ) {
     val statusColor = when (order.status) {
-        OrderStatus.PREPARING -> Color(0xFF2196F3) // Azul
+        OrderStatus.PREPARING -> Color(0xFF2196F3)
         else -> Color.Gray
     }
 
+    // Cálculo seguro de tempo
     val elapsedTimeMillis = currentTime - order.timestamp
     val elapsedSeconds = elapsedTimeMillis / 1000
     val minutes = elapsedSeconds / 60
@@ -81,22 +79,15 @@ fun KitchenOrderCard(
             ) {
                 Column {
                     val title = if (order.destinationType == "Local")
-                        "Mesa ${order.tableSelection.joinToString(", ")}"
+                        "Mesa ${order.tableSelection.sorted().joinToString(", ")}"
                     else
                         "Viagem: ${order.clientName ?: "Cliente"}"
 
-                    Text(
-                        text = title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
+                    Text(text = title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Text("ID: #${order.id.toString().takeLast(4)}", fontSize = 12.sp, color = Color.Gray)
                 }
 
-                Surface(
-                    color = statusColor,
-                    shape = MaterialTheme.shapes.small
-                ) {
+                Surface(color = statusColor, shape = MaterialTheme.shapes.small) {
                     Text(
                         text = timeDisplay,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -116,16 +107,12 @@ fun KitchenOrderCard(
                     Text("   Sem: ${item.removedIngredients.joinToString(", ")}", color = Color.Red, fontSize = 12.sp)
                 }
                 if (item.additionalIngredients.isNotEmpty()) {
-                    val addText = item.additionalIngredients.map { (name, qtd) ->
-                        if(qtd > 1) "$name(x$qtd)" else name
-                    }.joinToString(", ")
+                    val addText = item.additionalIngredients.map { (name, qtd) -> if(qtd > 1) "$name(x$qtd)" else name }.joinToString(", ")
                     Text("   Add: $addText", color = Color(0xFF4CAF50), fontSize = 12.sp)
                 }
-                item.meatDoneness?.let {
-                    Text("   Ponto: $it", color = Color.Blue, fontSize = 12.sp)
-                }
-                item.observations?.let {
-                    if(it.isNotBlank()) Text("   Obs: $it", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, fontSize = 12.sp)
+                item.meatDoneness?.let { Text("   Ponto: $it", color = Color.Blue, fontSize = 12.sp) }
+                item.observations?.takeIf { it.isNotBlank() }?.let {
+                    Text("   Obs: $it", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, fontSize = 12.sp)
                 }
                 Spacer(modifier = Modifier.height(4.dp))
             }
