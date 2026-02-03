@@ -5,6 +5,13 @@ import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 
+// --- CONFIGURAÇÃO DA CATEGORIA (NOVO) ---
+data class CategoryConfig(
+    val name: String,
+    val defaultIngredients: List<String> = emptyList(), // Ingredientes base (ex: Pão, Carne)
+    val availableOptionals: List<OptionalItem> = emptyList() // Opcionais (ex: Bacon, Ovo)
+)
+
 // --- ITENS DO CARDÁPIO ---
 data class MenuItem(
     val id: String = "",
@@ -49,14 +56,9 @@ data class KitchenOrder(
 )
 
 enum class OrderStatus {
-    PREPARING,      // Na Cozinha
-    READY,          // No Balcão (Pronto)
-    DELIVERED,      // Na Mesa (Cliente Consumindo)
-    NEEDS_CLEANING, // Conta Paga (Aguardando Limpeza)
-    FINISHED        // Mesa Livre (Histórico)
+    PREPARING, READY, DELIVERED, NEEDS_CLEANING, FINISHED
 }
 
-// --- PAGAMENTOS ---
 data class SplitPayment(
     val amount: Double,
     val method: String
@@ -85,7 +87,6 @@ class CurrencyVisualTransformation(
             override fun originalToTransformed(offset: Int) = maskedText.length
             override fun transformedToOriginal(offset: Int) = digitsOnly.length
         }
-
         return TransformedText(AnnotatedString(maskedText), offsetMapping)
     }
 }

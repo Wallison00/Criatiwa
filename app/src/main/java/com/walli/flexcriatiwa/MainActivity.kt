@@ -128,11 +128,14 @@ fun AppNavigation() {
                     imageUrl = managedProduct.imageUrl
                 )
 
+                // CORREÇÃO: Usamos os opcionais configurados no produto ou buscamos na categoria
+                val productSpecificOptionals = managedProduct.optionals.toList()
+
                 ItemDetailScreen(
                     product = menuItem,
                     productIngredients = managedProduct.ingredients.toList(),
-                    productOptionals = managedProduct.optionals.toList(),
-                    availableOptionals = managementViewModel.optionals,
+                    productOptionals = productSpecificOptionals,
+                    availableOptionals = productSpecificOptionals, // Passamos a lista do produto para cálculo de preço
                     orderViewModel = orderViewModel,
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToOrder = { navController.popBackStack() }
@@ -152,24 +155,18 @@ fun AppNavigation() {
                 emptyList()
             }
 
-            // --- CORREÇÃO AQUI: Recupera os dados da mesa para o cabeçalho ---
             LaunchedEffect(tableNumber) {
                 if (tableNumber != null) {
-                    // 1. Limpa o carrinho de novos itens
                     orderViewModel.clearAll()
-
-                    // 2. Busca o pedido ativo dessa mesa
                     val activeOrder = kitchenViewModel.ordersByTable.value[tableNumber]?.firstOrNull()
 
                     if (activeOrder != null) {
-                        // 3. Preenche o cabeçalho com os dados reais
                         orderViewModel.updateDestination(
                             newDestinationType = activeOrder.destinationType ?: "Local",
                             newTables = activeOrder.tableSelection,
                             newClientName = activeOrder.clientName ?: ""
                         )
                     } else {
-                        // 4. Se for mesa vazia, preenche o básico
                         orderViewModel.updateDestination(
                             newDestinationType = "Local",
                             newTables = setOf(tableNumber),
@@ -219,7 +216,7 @@ fun AppNavigation() {
                         popUpTo("main_layout") { inclusive = true }
                     }
                 },
-                onNavigateBack = { navController.popBackStack() } // O botão voltar funciona aqui
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }
@@ -427,7 +424,7 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
         try {
             if (item.imageUrl.startsWith("data:image")) {
                 val base64String = item.imageUrl.substringAfter(",")
-                val decodedBytes = android.util.Base64.decode(base64String, android.util.Base64.DEFAULT)
+                val decodedBytes = Base64.decode(base64String, Base64.DEFAULT)
                 BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
                     ?.asImageBitmap()
             } else null

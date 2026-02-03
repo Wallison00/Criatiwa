@@ -13,8 +13,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack // <--- NOVO IMPORT
 import androidx.compose.material.icons.filled.AddAPhoto
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,8 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-// Se CurrencyVisualTransformation estiver em MenuData.kt no mesmo pacote, o import não é necessário,
-// mas se o compilador reclamar, verifique se o package no topo é igual: com.walli.flexcriatiwa
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,10 +40,19 @@ fun AddEditProductScreen(
 
     var productName by remember { mutableStateOf(productBeingEdited?.name ?: "") }
     var productPrice by remember { mutableStateOf(if (isEditing) (productBeingEdited!!.price * 100).toLong().toString() else "") }
-    var selectedCategory by remember { mutableStateOf(productBeingEdited?.category ?: managementViewModel.categories.firstOrNull() ?: "") }
+    var isActive by remember { mutableStateOf(productBeingEdited?.isActive ?: true) }
+
+    // Configuração de Categoria
+    val availableCategories = managementViewModel.categoryConfigs.map { it.name }
+    var selectedCategory by remember { mutableStateOf(productBeingEdited?.category ?: availableCategories.firstOrNull() ?: "") }
+
+    // Obtém a configuração da categoria selecionada para mostrar os ingredientes corretos
+    val currentCategoryConfig = managementViewModel.categoryConfigs.find { it.name == selectedCategory }
+    val availableIngredientsForCat = currentCategoryConfig?.defaultIngredients ?: emptyList()
+    val availableOptionalsForCat = currentCategoryConfig?.availableOptionals ?: emptyList()
+
     var selectedIngredients by remember { mutableStateOf(productBeingEdited?.ingredients ?: emptySet()) }
     var selectedOptionals by remember { mutableStateOf(productBeingEdited?.optionals ?: emptySet()) }
-    var isActive by remember { mutableStateOf(productBeingEdited?.isActive ?: true) }
 
     var newSelectedImageUri by remember { mutableStateOf<Uri?>(null) }
     val existingImageUrl = productBeingEdited?.imageUrl ?: ""
@@ -74,7 +81,8 @@ fun AddEditProductScreen(
             TopAppBar(
                 title = { Text(if (isEditing) "Editar Produto" else "Adicionar Produto") },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Voltar") }
+                    // CORREÇÃO: Ícone atualizado
+                    IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") }
                 }
             )
         },
@@ -163,7 +171,6 @@ fun AddEditProductScreen(
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("R$ 0,00") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        // Usa a classe do MenuData.kt
                         visualTransformation = CurrencyVisualTransformation()
                     )
                 }
@@ -171,31 +178,49 @@ fun AddEditProductScreen(
 
             item {
                 FormSection("Categoria") {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        managementViewModel.categories.forEach { category ->
-                            FilterChip(selected = selectedCategory == category, onClick = { selectedCategory = category }, label = { Text(category) })
+                    if (availableCategories.isEmpty()) {
+                        Text("Cadastre categorias primeiro em 'Gestão'", color = Color.Red)
+                    } else {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            availableCategories.forEach { category ->
+                                FilterChip(
+                                    selected = selectedCategory == category,
+                                    onClick = {
+                                        selectedCategory = category
+                                        selectedIngredients = emptySet()
+                                        selectedOptionals = emptySet()
+                                    },
+                                    label = { Text(category) }
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            item {
-                FormSection("Ingredientes (Padrão)") {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        managementViewModel.ingredients.forEach { ingredient ->
-                            val isSelected = selectedIngredients.contains(ingredient)
-                            FilterChip(selected = isSelected, onClick = { selectedIngredients = if (isSelected) selectedIngredients - ingredient else selectedIngredients + ingredient }, label = { Text(ingredient) })
+            if (availableIngredientsForCat.isNotEmpty()) {
+                item {
+                    FormSection("Ingredientes da Categoria ($selectedCategory)") {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            availableIngredientsForCat.forEach { ingredient ->
+                                val isSelected = selectedIngredients.contains(ingredient)
+                                FilterChip(selected = isSelected, onClick = { selectedIngredients = if (isSelected) selectedIngredients - ingredient else selectedIngredients + ingredient }, label = { Text(ingredient) })
+                            }
                         }
                     }
                 }
+            } else if (selectedCategory.isNotEmpty()) {
+                item { Text("Nenhum ingrediente configurado para $selectedCategory", style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
             }
 
-            item {
-                FormSection("Opcionais Permitidos") {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        managementViewModel.optionals.forEach { optional ->
-                            val isSelected = selectedOptionals.contains(optional)
-                            FilterChip(selected = isSelected, onClick = { selectedOptionals = if (isSelected) selectedOptionals - optional else selectedOptionals + optional }, label = { Text(optional.name) })
+            if (availableOptionalsForCat.isNotEmpty()) {
+                item {
+                    FormSection("Opcionais da Categoria ($selectedCategory)") {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            availableOptionalsForCat.forEach { optional ->
+                                val isSelected = selectedOptionals.contains(optional)
+                                FilterChip(selected = isSelected, onClick = { selectedOptionals = if (isSelected) selectedOptionals - optional else selectedOptionals + optional }, label = { Text(optional.name) })
+                            }
                         }
                     }
                 }

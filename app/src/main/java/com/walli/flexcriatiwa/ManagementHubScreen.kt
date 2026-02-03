@@ -7,7 +7,6 @@ import androidx.compose.material.icons.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -21,8 +20,8 @@ fun ManagementHubScreen(
     onOpenDrawer: () -> Unit,
     onNavigateToProducts: () -> Unit,
     onNavigateToCategories: () -> Unit,
-    onNavigateToIngredients: () -> Unit,
-    onNavigateToOptionals: () -> Unit
+    onNavigateToIngredients: () -> Unit, // Mantido apenas para compatibilidade, mas não usado
+    onNavigateToOptionals: () -> Unit // Mantido apenas para compatibilidade, mas não usado
 ) {
     Scaffold(
         topBar = {
@@ -51,25 +50,14 @@ fun ManagementHubScreen(
             )
 
             ManagementCard(
-                title = "Gerenciar Categorias",
-                subtitle = "Adicione ou edite as categorias dos produtos (Ex: Lanches, Bebidas).",
+                title = "Estrutura do Cardápio",
+                subtitle = "Gerencie Categorias, Ingredientes e Adicionais.",
                 icon = Icons.Default.Category,
                 onClick = onNavigateToCategories
             )
 
-            ManagementCard(
-                title = "Gerenciar Ingredientes",
-                subtitle = "Cadastre os ingredientes base que compõem seus produtos.",
-                icon = Icons.Default.Fastfood,
-                onClick = onNavigateToIngredients
-            )
-
-            ManagementCard(
-                title = "Gerenciar Opcionais",
-                subtitle = "Cadastre os itens adicionais e seus respectivos preços.",
-                icon = Icons.Default.PlaylistAdd,
-                onClick = onNavigateToOptionals
-            )
+            // Os botões individuais de ingredientes e opcionais foram removidos
+            // pois agora estão dentro da Estrutura do Cardápio (Categorias)
         }
     }
 }
