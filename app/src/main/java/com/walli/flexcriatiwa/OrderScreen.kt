@@ -1,29 +1,25 @@
 package com.walli.flexcriatiwa
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AddCircleOutline
 import androidx.compose.material.icons.outlined.Remove
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -50,8 +46,10 @@ fun OrderScreen(
     val totalPrice = allItemsToShow.sumOf { it.singleItemTotalPrice * it.quantity }
 
     val currentTableId = orderViewModel.tableSelection.firstOrNull()
-    val activeOrdersForTable = if (currentTableId != null) ordersByTable[currentTableId] else null
-    val canCloseBill = activeOrdersForTable?.any { it.status == OrderStatus.DELIVERED } == true
+    // CORREÇÃO: Garante que a lista nunca seja nula, evitando o aviso de safe call desnecessária
+    val activeOrdersForTable = if (currentTableId != null) ordersByTable[currentTableId] ?: emptyList() else emptyList()
+
+    val canCloseBill = activeOrdersForTable.any { it.status == OrderStatus.DELIVERED }
 
     var showPaymentDialog by remember { mutableStateOf(false) }
     var showDestinationDialog by remember { mutableStateOf(false) }
@@ -96,7 +94,7 @@ fun OrderScreen(
             CenterAlignedTopAppBar(
                 title = { Text("Pedido", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) { Icon(Icons.Default.ArrowBack, "Voltar") }
+                    IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") }
                 },
                 actions = { TextButton(onClick = { showCancellationDialog = true }) { Text("Cancelar") } }
             )
@@ -121,14 +119,15 @@ fun OrderScreen(
                             ) {
                                 Text("Enviar")
                                 Spacer(Modifier.width(4.dp))
-                                Icon(Icons.Default.Send, null)
+                                Icon(Icons.AutoMirrored.Filled.Send, null)
                             }
                         }
 
                         if (canCloseBill && !canSendOrder) {
                             Button(
                                 onClick = {
-                                    activeOrdersForTable?.forEach { order ->
+                                    // CORREÇÃO: Sem '?' pois a lista agora é non-null
+                                    activeOrdersForTable.forEach { order ->
                                         if (order.status == OrderStatus.DELIVERED) {
                                             kitchenViewModel.updateOrderStatus(order.id, OrderStatus.NEEDS_CLEANING)
                                         }
@@ -175,18 +174,18 @@ fun OrderScreen(
             }
 
             item {
+                // CORREÇÃO: Parâmetro isDefined removido
                 SummarySectionCard(
                     title = "Local:",
                     info = if (destinationType == "Local" && orderViewModel.tableSelection.isNotEmpty()) "Mesa ${orderViewModel.tableSelection.joinToString()}" else destinationType ?: "Selecione",
-                    isDefined = destinationType != null,
                     onEditClick = { showDestinationDialog = true }
                 )
             }
             item {
+                // CORREÇÃO: Parâmetro isDefined removido
                 SummarySectionCard(
                     title = "Pagamento:",
                     info = if (payments.isNotEmpty()) "${payments.size} pagamentos" else "Pendente",
-                    isDefined = payments.isNotEmpty(),
                     onEditClick = { showPaymentDialog = true }
                 )
             }
@@ -230,7 +229,6 @@ fun OrderItemCard(orderItem: OrderItem, onQuantityChange: (Int) -> Unit, onEdit:
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text("R$ ${"%.2f".format(orderItem.singleItemTotalPrice * orderItem.quantity)}", fontWeight = FontWeight.Bold)
-                // CORREÇÃO: Usamos o novo componente renomeado para evitar conflito
                 OrderQuantitySelector(
                     quantity = orderItem.quantity,
                     onIncrease = { onQuantityChange(orderItem.quantity + 1) },
@@ -241,7 +239,6 @@ fun OrderItemCard(orderItem: OrderItem, onQuantityChange: (Int) -> Unit, onEdit:
     }
 }
 
-// --- NOVO NOME PARA EVITAR CONFLITO COM ItemDetailScreen ---
 @Composable
 fun OrderQuantitySelector(quantity: Int, onIncrease: () -> Unit, onDecrease: () -> Unit, modifier: Modifier = Modifier) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
@@ -292,8 +289,9 @@ fun DestinationDialog(onDismiss: () -> Unit, initialDestinationType: String?, in
     )
 }
 
+// CORREÇÃO: Parâmetro isDefined removido da assinatura
 @Composable
-fun SummarySectionCard(title: String, info: String, isDefined: Boolean, onEditClick: () -> Unit) {
+fun SummarySectionCard(title: String, info: String, onEditClick: () -> Unit) {
     Card(onClick = onEditClick, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Column { Text(title, color = Color.Gray); Text(info, fontWeight = FontWeight.Bold) }
@@ -356,7 +354,7 @@ fun PaymentDialog(
 
                 if (currentPayments.isNotEmpty()) {
                     item {
-                        Divider()
+                        HorizontalDivider()
                         Text("Pagamentos Realizados:", fontWeight = FontWeight.Bold)
                         currentPayments.forEach {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
