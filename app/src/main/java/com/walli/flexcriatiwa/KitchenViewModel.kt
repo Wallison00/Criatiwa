@@ -15,24 +15,28 @@ class KitchenViewModel : ViewModel() {
 
     // --- FLUXOS PÚBLICOS ---
 
+    // Cozinha vê apenas PREPARING
     val kitchenOrders: StateFlow<List<KitchenOrder>> = _allActiveOrders.map { orders ->
         orders.filter { it.status == OrderStatus.PREPARING }
             .sortedBy { it.timestamp }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Balcão vê apenas READY
     val readyOrders: StateFlow<List<KitchenOrder>> = _allActiveOrders.map { orders ->
         orders.filter { it.status == OrderStatus.READY }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Mesas ocupadas são todas que NÃO estão FINALIZADAS (inclui Delivered e Needs Cleaning)
     val occupiedTables: StateFlow<Set<Int>> = _allActiveOrders.map { orders ->
-        orders.filter { it.status != OrderStatus.DELIVERED && it.destinationType == "Local" }
+        orders.filter { it.status != OrderStatus.FINISHED && it.destinationType == "Local" }
             .flatMap { it.tableSelection }
             .toSet()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
+    // Mapa de mesas para desenhar a tela de Mesas
     val ordersByTable: StateFlow<Map<Int, List<KitchenOrder>>> = _allActiveOrders.map { orders ->
         orders
-            .filter { it.destinationType == "Local" && it.status != OrderStatus.DELIVERED }
+            .filter { it.destinationType == "Local" && it.status != OrderStatus.FINISHED }
             .flatMap { order -> order.tableSelection.map { tableNum -> tableNum to order } }
             .groupBy(keySelector = { it.first }, valueTransform = { it.second })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
@@ -45,8 +49,9 @@ class KitchenViewModel : ViewModel() {
     }
 
     init {
+        // Busca tudo que não está "FINISHED" (Livre)
         db.collection("orders")
-            .whereNotEqualTo("status", "DELIVERED")
+            .whereNotEqualTo("status", "FINISHED")
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
                     Log.w("KitchenVM", "Erro ao ouvir pedidos", e)
@@ -88,17 +93,9 @@ class KitchenViewModel : ViewModel() {
 
     // --- AÇÕES ---
 
-    fun submitNewOrder(
-        items: List<OrderItem>,
-        destinationType: String?,
-        tableSelection: Set<Int>,
-        clientName: String?,
-        payments: List<SplitPayment>
-    ) {
+    fun submitNewOrder(items: List<OrderItem>, destinationType: String?, tableSelection: Set<Int>, clientName: String?, payments: List<SplitPayment>) {
         if (items.isEmpty()) return
-
         val timestamp = System.currentTimeMillis()
-
         val orderMap = hashMapOf(
             "timestamp" to timestamp,
             "status" to OrderStatus.PREPARING.name,
@@ -108,16 +105,13 @@ class KitchenViewModel : ViewModel() {
             "items" to items.map { orderItemToMap(it) },
             "payments" to payments.map { mapOf("amount" to it.amount, "method" to it.method) }
         )
-
         db.collection("orders").add(orderMap)
-            .addOnFailureListener { e -> Log.e("KitchenVM", "Erro ao salvar pedido", e) }
     }
 
     fun addItemsToTableOrder(tableNumber: Int, newItems: List<OrderItem>) {
         if (newItems.isEmpty()) return
-
         val existingOrder = _allActiveOrders.value.find {
-            it.tableSelection.contains(tableNumber) && it.status != OrderStatus.DELIVERED
+            it.tableSelection.contains(tableNumber) && it.status != OrderStatus.FINISHED
         }
 
         if (existingOrder != null) {
@@ -125,21 +119,30 @@ class KitchenViewModel : ViewModel() {
             val newItemsMaps = newItems.map { orderItemToMap(it) }
             val allItems = currentItemsMaps + newItemsMaps
 
+            // Se a mesa estava consumindo (DELIVERED) e pede mais, volta para PREPARING?
+            // Geralmente sim, pois a cozinha precisa fazer.
+            // Se estava NEEDS_CLEANING, assumimos que o cliente sentou de novo? Vamos forçar PREPARING.
             db.collection("orders").document(existingOrder.firebaseId)
-                .update(
-                    mapOf(
-                        "items" to allItems,
-                        "status" to OrderStatus.PREPARING.name
-                    )
-                )
+                .update(mapOf("items" to allItems, "status" to OrderStatus.PREPARING.name))
         } else {
             submitNewOrder(newItems, "Local", setOf(tableNumber), "Mesa $tableNumber", emptyList())
         }
     }
 
+    // Atualiza status (ex: DELIVERED -> NEEDS_CLEANING)
     fun updateOrderStatus(numericId: Long, newStatus: OrderStatus) {
         val order = _allActiveOrders.value.find { it.id == numericId } ?: return
         db.collection("orders").document(order.firebaseId).update("status", newStatus.name)
+    }
+
+    // Novo: Limpar mesa (Libera para novos clientes)
+    fun finishAndCleanTable(tableNumber: Int) {
+        val ordersOnTable = _allActiveOrders.value.filter {
+            it.tableSelection.contains(tableNumber) && it.status == OrderStatus.NEEDS_CLEANING
+        }
+        ordersOnTable.forEach { order ->
+            db.collection("orders").document(order.firebaseId).update("status", OrderStatus.FINISHED.name)
+        }
     }
 
     // --- MAPPERS ---

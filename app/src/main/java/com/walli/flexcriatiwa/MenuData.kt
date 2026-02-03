@@ -49,9 +49,11 @@ data class KitchenOrder(
 )
 
 enum class OrderStatus {
-    PREPARING,
-    READY,
-    DELIVERED
+    PREPARING,      // Na Cozinha
+    READY,          // No Balcão (Pronto)
+    DELIVERED,      // Na Mesa (Cliente Consumindo)
+    NEEDS_CLEANING, // Conta Paga (Aguardando Limpeza)
+    FINISHED        // Mesa Livre (Histórico)
 }
 
 // --- PAGAMENTOS ---
@@ -60,8 +62,7 @@ data class SplitPayment(
     val method: String
 )
 
-// --- UTILITÁRIOS (FORMATAÇÃO DE MOEDA) ---
-// Esta classe agora está visível para todo o projeto
+// --- UTILITÁRIOS ---
 class CurrencyVisualTransformation(
     private val currencySymbol: String = "R$ ",
     private val thousandsSeparator: Char = '.'
@@ -73,7 +74,6 @@ class CurrencyVisualTransformation(
         val integerPart = formattedNumber.dropLast(2)
         val decimalPart = formattedNumber.takeLast(2)
 
-        // Formata milhar: 1000 -> 1.000
         val formattedIntegerPart = integerPart.reversed()
             .chunked(3)
             .joinToString(separator = thousandsSeparator.toString())
