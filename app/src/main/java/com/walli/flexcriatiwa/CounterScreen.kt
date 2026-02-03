@@ -64,7 +64,7 @@ fun CounterScreen(
 @Composable
 fun CounterOrderCard(order: KitchenOrder, onDeliver: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)), // Verde claro
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -78,15 +78,46 @@ fun CounterOrderCard(order: KitchenOrder, onDeliver: () -> Unit) {
                 else
                     "SENHA: ${order.clientName ?: "Anon"}"
 
-                Text(text = title, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color(0xFF2E7D32))
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp,
+                    color = Color(0xFF2E7D32)
+                )
                 Text("#${order.id.toString().takeLast(4)}", color = Color.Gray)
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             Text("Itens:", fontWeight = FontWeight.Bold)
+
+            // --- LOOP DETALHADO DOS ITENS (Igual à Cozinha) ---
             order.items.forEach { item ->
-                Text("- ${item.quantity}x ${item.menuItem.name}")
+                // Linha Principal (Qtd + Nome)
+                Text("- ${item.quantity}x ${item.menuItem.name}", fontWeight = FontWeight.SemiBold)
+
+                // Detalhes (Pequenos e coloridos)
+                if (item.removedIngredients.isNotEmpty()) {
+                    Text("   Sem: ${item.removedIngredients.joinToString(", ")}", color = Color.Red, fontSize = 12.sp)
+                }
+
+                if (item.additionalIngredients.isNotEmpty()) {
+                    val addText = item.additionalIngredients.map { (name, qtd) ->
+                        if(qtd > 1) "$name(x$qtd)" else name
+                    }.joinToString(", ")
+                    Text("   Add: $addText", color = Color(0xFF388E3C), fontSize = 12.sp) // Verde escuro
+                }
+
+                item.meatDoneness?.let {
+                    Text("   Ponto: $it", color = Color.Blue, fontSize = 12.sp)
+                }
+
+                item.observations?.takeIf { it.isNotBlank() }?.let {
+                    Text("   Obs: $it", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, fontSize = 12.sp, color = Color.DarkGray)
+                }
+
+                // Espaço entre itens
+                Spacer(modifier = Modifier.height(4.dp))
             }
 
             Spacer(modifier = Modifier.height(16.dp))
