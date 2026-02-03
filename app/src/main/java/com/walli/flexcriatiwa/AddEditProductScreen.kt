@@ -1,8 +1,10 @@
 package com.walli.flexcriatiwa
 
+import android.content.Context // <--- Faltava este import
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
+import android.util.Log // <--- Faltava este import
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,8 +15,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack // <--- NOVO IMPORT
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,7 +30,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,7 +55,6 @@ fun AddEditProductScreen(
     val availableCategories = managementViewModel.categoryConfigs.map { it.name }
     var selectedCategory by remember { mutableStateOf(productBeingEdited?.category ?: availableCategories.firstOrNull() ?: "") }
 
-    // Obtém a configuração da categoria selecionada para mostrar os ingredientes corretos
     val currentCategoryConfig = managementViewModel.categoryConfigs.find { it.name == selectedCategory }
     val availableIngredientsForCat = currentCategoryConfig?.defaultIngredients ?: emptyList()
     val availableOptionalsForCat = currentCategoryConfig?.availableOptionals ?: emptyList()
@@ -54,8 +62,26 @@ fun AddEditProductScreen(
     var selectedIngredients by remember { mutableStateOf(productBeingEdited?.ingredients ?: emptySet()) }
     var selectedOptionals by remember { mutableStateOf(productBeingEdited?.optionals ?: emptySet()) }
 
+    // --- LÓGICA DE IMAGEM ---
     var newSelectedImageUri by remember { mutableStateOf<Uri?>(null) }
     val existingImageUrl = productBeingEdited?.imageUrl ?: ""
+    var showImageSourceDialog by remember { mutableStateOf(false) }
+
+    var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri -> if (uri != null) newSelectedImageUri = uri }
+    )
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture(),
+        onResult = { success ->
+            if (success && tempCameraUri != null) {
+                newSelectedImageUri = tempCameraUri
+            }
+        }
+    )
 
     val existingBitmap = remember(existingImageUrl) {
         try {
@@ -67,13 +93,43 @@ fun AddEditProductScreen(
         } catch (e: Exception) { null }
     }
 
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-        onResult = { uri -> if (uri != null) newSelectedImageUri = uri }
-    )
-
     DisposableEffect(Unit) {
         onDispose { managementViewModel.clearEditState() }
+    }
+
+    // DIÁLOGO DE ESCOLHA DA IMAGEM
+    if (showImageSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showImageSourceDialog = false },
+            title = { Text("Selecionar Imagem") },
+            text = { Text("De onde você deseja adicionar a imagem?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showImageSourceDialog = false
+                    try {
+                        val uri = createImageFileUri(context)
+                        tempCameraUri = uri
+                        cameraLauncher.launch(uri)
+                    } catch (e: Exception) {
+                        Log.e("Camera", "Erro ao criar arquivo", e)
+                    }
+                }) {
+                    Icon(Icons.Default.CameraAlt, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Câmera")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showImageSourceDialog = false
+                    galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) {
+                    Icon(Icons.Default.PhotoLibrary, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Galeria")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -81,8 +137,7 @@ fun AddEditProductScreen(
             TopAppBar(
                 title = { Text(if (isEditing) "Editar Produto" else "Adicionar Produto") },
                 navigationIcon = {
-                    // CORREÇÃO: Ícone atualizado
-                    IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") }
+                    IconButton(onClick = onNavigateBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Voltar") }
                 }
             )
         },
@@ -134,7 +189,7 @@ fun AddEditProductScreen(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth().height(200.dp).clickable {
-                        photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        showImageSourceDialog = true
                     },
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
@@ -209,8 +264,6 @@ fun AddEditProductScreen(
                         }
                     }
                 }
-            } else if (selectedCategory.isNotEmpty()) {
-                item { Text("Nenhum ingrediente configurado para $selectedCategory", style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
             }
 
             if (availableOptionalsForCat.isNotEmpty()) {
@@ -235,4 +288,16 @@ private fun FormSection(title: String, content: @Composable ColumnScope.() -> Un
         Text(text = title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         content()
     }
+}
+
+// --- FUNÇÃO AUXILIAR PARA CRIAR ARQUIVO DE FOTO ---
+fun createImageFileUri(context: Context): Uri {
+    val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+    val imageFileName = "JPEG_" + timeStamp + "_"
+    val image = File.createTempFile(
+        imageFileName,
+        ".jpg",
+        context.externalCacheDir
+    )
+    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", image)
 }

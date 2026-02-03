@@ -5,10 +5,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
+// REMOVIDO: Imports automirrored que causavam erro
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AddCircleOutline
@@ -18,8 +19,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -46,7 +50,6 @@ fun OrderScreen(
     val totalPrice = allItemsToShow.sumOf { it.singleItemTotalPrice * it.quantity }
 
     val currentTableId = orderViewModel.tableSelection.firstOrNull()
-    // CORREÇÃO: Garante que a lista nunca seja nula, evitando o aviso de safe call desnecessária
     val activeOrdersForTable = if (currentTableId != null) ordersByTable[currentTableId] ?: emptyList() else emptyList()
 
     val canCloseBill = activeOrdersForTable.any { it.status == OrderStatus.DELIVERED }
@@ -94,7 +97,8 @@ fun OrderScreen(
             CenterAlignedTopAppBar(
                 title = { Text("Pedido", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") }
+                    // VOLTAMOS AO ÍCONE PADRÃO
+                    IconButton(onClick = onNavigateBack) { Icon(Icons.Default.ArrowBack, "Voltar") }
                 },
                 actions = { TextButton(onClick = { showCancellationDialog = true }) { Text("Cancelar") } }
             )
@@ -119,14 +123,14 @@ fun OrderScreen(
                             ) {
                                 Text("Enviar")
                                 Spacer(Modifier.width(4.dp))
-                                Icon(Icons.AutoMirrored.Filled.Send, null)
+                                // VOLTAMOS AO ÍCONE PADRÃO
+                                Icon(Icons.Default.Send, null)
                             }
                         }
 
                         if (canCloseBill && !canSendOrder) {
                             Button(
                                 onClick = {
-                                    // CORREÇÃO: Sem '?' pois a lista agora é non-null
                                     activeOrdersForTable.forEach { order ->
                                         if (order.status == OrderStatus.DELIVERED) {
                                             kitchenViewModel.updateOrderStatus(order.id, OrderStatus.NEEDS_CLEANING)
@@ -174,7 +178,6 @@ fun OrderScreen(
             }
 
             item {
-                // CORREÇÃO: Parâmetro isDefined removido
                 SummarySectionCard(
                     title = "Local:",
                     info = if (destinationType == "Local" && orderViewModel.tableSelection.isNotEmpty()) "Mesa ${orderViewModel.tableSelection.joinToString()}" else destinationType ?: "Selecione",
@@ -182,7 +185,6 @@ fun OrderScreen(
                 )
             }
             item {
-                // CORREÇÃO: Parâmetro isDefined removido
                 SummarySectionCard(
                     title = "Pagamento:",
                     info = if (payments.isNotEmpty()) "${payments.size} pagamentos" else "Pendente",
@@ -289,7 +291,6 @@ fun DestinationDialog(onDismiss: () -> Unit, initialDestinationType: String?, in
     )
 }
 
-// CORREÇÃO: Parâmetro isDefined removido da assinatura
 @Composable
 fun SummarySectionCard(title: String, info: String, onEditClick: () -> Unit) {
     Card(onClick = onEditClick, modifier = Modifier.fillMaxWidth()) {
