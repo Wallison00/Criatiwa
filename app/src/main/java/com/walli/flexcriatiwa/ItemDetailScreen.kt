@@ -44,7 +44,6 @@ fun ItemDetailScreen(
     val itemBeingEdited = orderViewModel.itemToEdit
     val isEditMode = itemBeingEdited != null
 
-    // CORREÇÃO: Usamos emptyList() para garantir que seja uma List, não um Set/Collection
     var removedIngredients by remember {
         mutableStateOf(itemBeingEdited?.removedIngredients ?: emptyList())
     }
@@ -113,7 +112,7 @@ fun ItemDetailScreen(
                             val updatedItem = OrderItem(
                                 menuItem = product,
                                 quantity = quantity,
-                                removedIngredients = removedIngredients, // Agora isso é garantidamente uma List
+                                removedIngredients = removedIngredients,
                                 additionalIngredients = ingredientesRealmenteAdicionados,
                                 meatDoneness = meatDoneness,
                                 observations = observations.takeIf { it.isNotBlank() },
@@ -161,9 +160,16 @@ fun ItemDetailScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
+                // --- MUDANÇA AQUI: Título com Código Sequencial ---
                 item {
+                    val titleText = if (product.code > 0) {
+                        "#%03d - %s".format(product.code, product.name) // Ex: #001 - X-Bacon
+                    } else {
+                        product.name // Caso seja produto legado sem código
+                    }
+
                     Text(
-                        text = "${product.id} - ${product.name}",
+                        text = titleText,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -342,6 +348,7 @@ fun AdditionalIngredientRow(
     }
 }
 
+// Renomeei para evitar conflito com a outra tela se necessário, mas mantive a lógica igual
 @Composable
 fun CompactQuantitySelector(
     quantity: Int,
