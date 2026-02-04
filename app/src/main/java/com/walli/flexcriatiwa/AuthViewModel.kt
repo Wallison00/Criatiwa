@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Firebase
+import com.google.firebase.Timestamp // Importante para comparar datas
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.launch
@@ -25,8 +26,7 @@ class AuthViewModel : ViewModel() {
     private val auth = Firebase.auth
     private val db = Firebase.firestore
 
-    // --- ATENÇÃO AQUI ---
-    // Verifique letra por letra. Não deixe espaços no final.
+    // SEU E-MAIL DE SUPER ADMIN
     private val SUPER_ADMIN_EMAIL = "wallisonfreitas00@gmail.com"
 
     var authState by mutableStateOf<AuthState>(AuthState.Loading)
@@ -52,18 +52,13 @@ class AuthViewModel : ViewModel() {
             val currentEmail = currentUser.email?.trim()?.lowercase() ?: ""
             val targetAdminEmail = SUPER_ADMIN_EMAIL.trim().lowercase()
 
-            // LOG DE DEPURAÇÃO (Veja isso no Logcat do Android Studio)
             Log.d("AUTH_DEBUG", "Email Logado: '$currentEmail'")
-            Log.d("AUTH_DEBUG", "Email Esperado: '$targetAdminEmail'")
-            Log.d("AUTH_DEBUG", "São iguais? ${currentEmail == targetAdminEmail}")
 
             if (currentEmail == targetAdminEmail) {
-                Log.d("AUTH_DEBUG", ">>> USUÁRIO É ADMIN. INDO PARA PAINEL.")
                 authState = AuthState.SuperAdmin
-                return // <--- Para aqui e vai para o Admin
+                return
             }
 
-            Log.d("AUTH_DEBUG", ">>> USUÁRIO COMUM. BUSCANDO PERFIL.")
             fetchUserProfile(currentUser.uid)
         }
     }
@@ -81,8 +76,7 @@ class AuthViewModel : ViewModel() {
         }
     }
 
-    // --- FUNÇÕES DE USUÁRIO COMUM ---
-
+    // --- LÓGICA DE LOGIN COM VALIDADE ---
     private fun fetchUserProfile(uid: String) {
         viewModelScope.launch {
             try {
@@ -93,10 +87,21 @@ class AuthViewModel : ViewModel() {
 
                     if (!companyId.isNullOrBlank()) {
                         val companyDoc = db.collection("companies").document(companyId).get().await()
+
+                        // 1. Verifica Status (Bloqueio Manual)
                         val status = companyDoc.getString("status") ?: "active"
 
+                        // 2. Verifica Validade (Bloqueio Automático)
+                        val expiresAt = companyDoc.getTimestamp("expiresAt")
+                        // Compara segundos Unix atuais com o do vencimento
+                        val isExpired = expiresAt != null && expiresAt.seconds < Timestamp.now().seconds
+
                         if (status == "blocked") {
-                            authState = AuthState.Error("Acesso bloqueado. Contate o suporte.")
+                            authState = AuthState.Error("Acesso bloqueado pelo administrador.")
+                            auth.signOut()
+                        } else if (isExpired) {
+                            // BLOQUEIO POR DATA
+                            authState = AuthState.Error("Sua assinatura venceu. Renove para continuar.")
                             auth.signOut()
                         } else {
                             authState = AuthState.LoggedIn(companyId, role)

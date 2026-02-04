@@ -6,9 +6,13 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Firebase
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.firestore
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import java.util.Date
 
 class SuperAdminViewModel : ViewModel() {
     private val db = Firebase.firestore
@@ -19,6 +23,10 @@ class SuperAdminViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
         private set
 
+    // Canal para enviar mensagens de erro/sucesso para a tela
+    private val _uiMessage = MutableSharedFlow<String>()
+    val uiMessage = _uiMessage.asSharedFlow()
+
     init {
         fetchAllCompanies()
     }
@@ -27,26 +35,24 @@ class SuperAdminViewModel : ViewModel() {
         viewModelScope.launch {
             isLoading = true
             try {
-                // Busca todas as empresas
                 val snapshot = db.collection("companies").get().await()
                 companies = snapshot.documents.mapNotNull { doc ->
                     try {
+                        // Agora o AuthData.kt já tem o campo shareCode, então isso vai compilar
                         Company(
                             id = doc.id,
                             name = doc.getString("name") ?: "Sem Nome",
                             ownerId = doc.getString("ownerId") ?: "",
-                            status = doc.getString("status") ?: "active"
+                            status = doc.getString("status") ?: "active",
+                            shareCode = doc.getString("shareCode") ?: "", // <--- AQUI ESTAVA O ERRO ANTES
+                            expiresAt = doc.getTimestamp("expiresAt")
                         )
                     } catch (e: Exception) { null }
-                }.filter { company ->
-                    // FILTRO DE LIMPEZA:
-                    // 1. Remove empresas sem nome ou vazias
-                    // 2. Opcional: Se você souber o ID da sua "empresa de teste" que quer esconder, filtre aqui:
-                    // it.id != "ID_DA_SUA_EMPRESA_TESTE"
-                    company.name.isNotBlank() && company.name != "Sem Nome"
-                }
+                }.filter {
+                    it.name.isNotBlank() && it.name != "Sem Nome"
+                }.sortedBy { it.name }
             } catch (e: Exception) {
-                // Erro de permissão ou rede
+                _uiMessage.emit("Erro ao carregar: ${e.message}")
             } finally {
                 isLoading = false
             }
@@ -64,20 +70,53 @@ class SuperAdminViewModel : ViewModel() {
                 companies = companies.map {
                     if (it.id == company.id) it.copy(status = newStatus) else it
                 }
-            } catch (e: Exception) { }
+                _uiMessage.emit("Status alterado para $newStatus")
+            } catch (e: Exception) {
+                _uiMessage.emit("Erro ao alterar status: ${e.message}")
+            }
         }
     }
 
-    // --- NOVA FUNÇÃO: DELETAR EMPRESA ---
     fun deleteCompany(companyId: String) {
         viewModelScope.launch {
             try {
-                // Deleta o documento da empresa
                 db.collection("companies").document(companyId).delete().await()
-
-                // Remove da lista local imediatamente
                 companies = companies.filter { it.id != companyId }
-            } catch (e: Exception) { }
+                _uiMessage.emit("Empresa excluída com sucesso.")
+            } catch (e: Exception) {
+                _uiMessage.emit("Erro ao excluir: ${e.message}")
+            }
         }
+    }
+
+    fun updateExpirationDate(companyId: String, newTimestamp: Long?) {
+        viewModelScope.launch {
+            try {
+                val updateData = if (newTimestamp != null) {
+                    val date = Date(newTimestamp)
+                    val firebaseTimestamp = Timestamp(date)
+                    mapOf("expiresAt" to firebaseTimestamp)
+                } else {
+                    mapOf("expiresAt" to null)
+                }
+
+                db.collection("companies").document(companyId)
+                    .update(updateData)
+                    .await()
+
+                _uiMessage.emit("Data salva com sucesso!")
+                fetchAllCompanies()
+            } catch (e: Exception) {
+                val erro = e.message ?: "Erro desconhecido"
+                _uiMessage.emit("ERRO AO SALVAR DATA: $erro")
+                android.util.Log.e("SuperAdminViewModel", "Erro updateExpirationDate", e)
+            }
+        }
+    }
+
+    fun formatDate(timestamp: Timestamp?): String {
+        if (timestamp == null) return "Vitalício"
+        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR"))
+        return sdf.format(timestamp.toDate())
     }
 }
