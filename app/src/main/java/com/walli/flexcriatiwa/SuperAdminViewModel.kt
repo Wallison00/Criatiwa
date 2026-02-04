@@ -27,7 +27,7 @@ class SuperAdminViewModel : ViewModel() {
         viewModelScope.launch {
             isLoading = true
             try {
-                // Busca todas as empresas (requer regras de segurança permissivas para o admin)
+                // Busca todas as empresas
                 val snapshot = db.collection("companies").get().await()
                 companies = snapshot.documents.mapNotNull { doc ->
                     try {
@@ -38,9 +38,15 @@ class SuperAdminViewModel : ViewModel() {
                             status = doc.getString("status") ?: "active"
                         )
                     } catch (e: Exception) { null }
+                }.filter { company ->
+                    // FILTRO DE LIMPEZA:
+                    // 1. Remove empresas sem nome ou vazias
+                    // 2. Opcional: Se você souber o ID da sua "empresa de teste" que quer esconder, filtre aqui:
+                    // it.id != "ID_DA_SUA_EMPRESA_TESTE"
+                    company.name.isNotBlank() && company.name != "Sem Nome"
                 }
             } catch (e: Exception) {
-                // Tratar erro (ex: permissão negada)
+                // Erro de permissão ou rede
             } finally {
                 isLoading = false
             }
@@ -55,13 +61,23 @@ class SuperAdminViewModel : ViewModel() {
                     .update("status", newStatus)
                     .await()
 
-                // Atualiza a lista localmente para refletir a mudança rápida
                 companies = companies.map {
                     if (it.id == company.id) it.copy(status = newStatus) else it
                 }
-            } catch (e: Exception) {
-                // Erro ao atualizar
-            }
+            } catch (e: Exception) { }
+        }
+    }
+
+    // --- NOVA FUNÇÃO: DELETAR EMPRESA ---
+    fun deleteCompany(companyId: String) {
+        viewModelScope.launch {
+            try {
+                // Deleta o documento da empresa
+                db.collection("companies").document(companyId).delete().await()
+
+                // Remove da lista local imediatamente
+                companies = companies.filter { it.id != companyId }
+            } catch (e: Exception) { }
         }
     }
 }

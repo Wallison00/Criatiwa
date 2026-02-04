@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.ExitToApp
 import androidx.compose.material.icons.outlined.Settings
@@ -57,66 +58,27 @@ fun RootNavigation() {
     val authViewModel: AuthViewModel = viewModel()
     val authState = authViewModel.authState
 
-    // Gerenciador de Estados de Autenticação
     when (authState) {
-        is AuthState.Loading -> {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        }
+        is AuthState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         is AuthState.LoggedOut -> {
             var showRegister by remember { mutableStateOf(false) }
+            if (showRegister) RegisterCompanyScreen(authViewModel) { }
+            else LoginScreen(onLoginSuccess = { authViewModel.checkAuthStatus() }, onNavigateToRegister = { showRegister = true })
+        }
+        is AuthState.NeedsCompanyRegistration -> RegisterCompanyScreen(authViewModel) { }
+        is AuthState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Erro: ${authState.message}", color = Color.Red)
+                Button(onClick = { authViewModel.checkAuthStatus() }) { Text("Tentar Novamente") }
+                TextButton(onClick = { authViewModel.signOut() }) { Text("Sair") }
+            }
+        }
 
-            if (showRegister) {
-                RegisterCompanyScreen(
-                    authViewModel = authViewModel,
-                    onRegistered = { /* O ViewModel já atualiza o estado internamente */ }
-                )
-            } else {
-                LoginScreen(
-                    onLoginSuccess = {
-                        // --- CORREÇÃO AQUI ---
-                        // Avisa o ViewModel que o login ocorreu para ele buscar os dados da empresa
-                        authViewModel.checkAuthStatus()
-                    },
-                    onNavigateToRegister = { showRegister = true }
-                )
-            }
-        }
-        is AuthState.NeedsCompanyRegistration -> {
-            RegisterCompanyScreen(
-                authViewModel = authViewModel,
-                onRegistered = { /* O ViewModel já atualiza o estado internamente */ }
-            )
-        }
-        is AuthState.Error -> {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Erro: ${authState.message}", color = Color.Red)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(onClick = { authViewModel.checkAuthStatus() }) { // Melhor usar checkAuthStatus aqui também
-                        Text("Tentar Novamente")
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextButton(onClick = { authViewModel.signOut() }) {
-                        Text("Sair")
-                    }
-                }
-            }
-        }
-        is AuthState.SuperAdmin -> {
-            // Rota para o Painel Administrativo
-            SuperAdminScreen(
-                onSignOut = { authViewModel.signOut() }
-            )
-        }
-        is AuthState.LoggedIn -> {
-            // USUÁRIO LOGADO E COM EMPRESA: Inicia o App Principal
-            AuthorizedApp(
-                companyId = authState.companyId,
-                authViewModel = authViewModel
-            )
-        }
+        // Rota Admin
+        is AuthState.SuperAdmin -> SuperAdminScreen(authViewModel, onSignOut = { authViewModel.signOut() })
+
+        // Rota App (Cliente ou Admin Espião)
+        is AuthState.LoggedIn -> AuthorizedApp(authState.companyId, authViewModel)
     }
 }
 
@@ -194,15 +156,32 @@ fun MainAppLayout(
 
     val items = listOf("Cardápio" to Icons.Filled.RestaurantMenu, "Cozinha" to Icons.Default.SoupKitchen, "Balcão" to Icons.Filled.Storefront, "Mesa" to Icons.Filled.TableRestaurant, "Gestão" to Icons.Outlined.Settings)
 
+    // Verifica se é Admin para mostrar aviso visual
+    val isAdminMode = authViewModel.isUserSuperAdmin
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
                 Spacer(Modifier.height(16.dp))
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Store, null, Modifier.size(40.dp))
-                    Spacer(Modifier.width(16.dp))
-                    Column { Text("FlexCriatiwa", fontWeight = FontWeight.Bold); Text("SaaS Mode", style = MaterialTheme.typography.bodySmall) }
+                // Banner de Topo
+                if (isAdminMode) {
+                    Surface(color = Color.Red.copy(alpha = 0.1f), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Visibility, null, tint = Color.Red)
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text("MODO ESPIÃO", color = Color.Red, fontWeight = FontWeight.Bold)
+                                Text("Acesso Admin", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                } else {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Store, null, Modifier.size(40.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Column { Text("FlexCriatiwa", fontWeight = FontWeight.Bold); Text("SaaS Mode", style = MaterialTheme.typography.bodySmall) }
+                    }
                 }
                 Divider()
                 items.forEachIndexed { index, (title, icon) ->
@@ -215,11 +194,32 @@ fun MainAppLayout(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                NavigationDrawerItem(icon = { Icon(Icons.Outlined.ExitToApp, null) }, label = { Text("Sair") }, selected = false, onClick = { scope.launch { drawerState.close(); authViewModel.signOut() } }, modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding))
+
+                // --- BOTÃO DINÂMICO ---
+                NavigationDrawerItem(
+                    icon = {
+                        if (isAdminMode) Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.Red)
+                        else Icon(Icons.Outlined.ExitToApp, null)
+                    },
+                    label = {
+                        if (isAdminMode) Text("Voltar ao Painel", color = Color.Red, fontWeight = FontWeight.Bold)
+                        else Text("Sair")
+                    },
+                    selected = false,
+                    onClick = {
+                        scope.launch {
+                            drawerState.close()
+                            if (isAdminMode) authViewModel.exitCompanyMode() // VOLTA
+                            else authViewModel.signOut() // SAI
+                        }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
                 Spacer(Modifier.height(16.dp))
             }
         }
     ) {
+        // ... (resto do scaffold igual)
         when (selectedIndex) {
             0 -> MainScreen(managementViewModel, !orderViewModel.isOrderEmpty, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
             1 -> KitchenScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
@@ -230,6 +230,7 @@ fun MainAppLayout(
     }
 }
 
+// ... (Mantenha MainScreen e outros componentes como estavam)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(

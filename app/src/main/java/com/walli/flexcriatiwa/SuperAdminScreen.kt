@@ -1,6 +1,5 @@
 package com.walli.flexcriatiwa
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,9 +7,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -21,6 +22,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SuperAdminScreen(
+    authViewModel: AuthViewModel, // Recebe o AuthViewModel para poder entrar na empresa
     onSignOut: () -> Unit
 ) {
     val viewModel: SuperAdminViewModel = viewModel()
@@ -53,7 +55,10 @@ fun SuperAdminScreen(
                 items(viewModel.companies) { company ->
                     CompanyAdminCard(
                         company = company,
-                        onToggleStatus = { viewModel.toggleCompanyStatus(company) }
+                        onToggleStatus = { viewModel.toggleCompanyStatus(company) },
+                        onDelete = { viewModel.deleteCompany(company.id) },
+                        // Ação de Acessar
+                        onAccess = { authViewModel.enterCompanyMode(company.id) }
                     )
                 }
             }
@@ -62,44 +67,55 @@ fun SuperAdminScreen(
 }
 
 @Composable
-fun CompanyAdminCard(company: Company, onToggleStatus: () -> Unit) {
+fun CompanyAdminCard(
+    company: Company,
+    onToggleStatus: () -> Unit,
+    onDelete: () -> Unit,
+    onAccess: () -> Unit
+) {
     val isActive = company.status == "active"
     val statusColor = if (isActive) Color(0xFF4CAF50) else Color(0xFFE53935)
-    val statusText = if (isActive) "Ativo" else "Bloqueado"
+
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Excluir Empresa?") },
+            text = { Text("Tem certeza que deseja apagar '${company.name}'?") },
+            confirmButton = {
+                Button(onClick = { onDelete(); showDeleteDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                    Text("Excluir")
+                }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancelar") } }
+        )
+    }
 
     Card(elevation = CardDefaults.cardElevation(4.dp)) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(company.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("ID: ${company.id.take(8)}...", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-
-                Spacer(Modifier.height(4.dp))
-
-                Surface(
-                    color = statusColor.copy(alpha = 0.2f),
-                    shape = MaterialTheme.shapes.small
-                ) {
-                    Text(
-                        text = statusText,
-                        color = statusColor,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Text(if(isActive) "Ativo" else "Bloqueado", color = statusColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
             }
 
-            IconButton(onClick = onToggleStatus) {
-                if (isActive) {
-                    Icon(Icons.Default.Block, "Bloquear", tint = Color.Red)
-                } else {
-                    Icon(Icons.Default.CheckCircle, "Ativar", tint = Color.Green)
+            Row {
+                // BOTÃO NOVO: ACESSAR (OLHO)
+                IconButton(onClick = onAccess) {
+                    Icon(Icons.Default.Visibility, "Acessar App", tint = MaterialTheme.colorScheme.primary)
+                }
+
+                IconButton(onClick = onToggleStatus) {
+                    if (isActive) Icon(Icons.Default.Block, "Bloquear", tint = Color.Gray)
+                    else Icon(Icons.Default.CheckCircle, "Ativar", tint = Color.Green)
+                }
+
+                IconButton(onClick = { showDeleteDialog = true }) {
+                    Icon(Icons.Default.Delete, "Excluir", tint = MaterialTheme.colorScheme.error)
                 }
             }
         }

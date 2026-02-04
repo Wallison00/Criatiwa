@@ -1,5 +1,6 @@
 package com.walli.flexcriatiwa
 
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -16,7 +17,7 @@ sealed class AuthState {
     object LoggedOut : AuthState()
     object NeedsCompanyRegistration : AuthState()
     data class LoggedIn(val companyId: String, val userRole: String) : AuthState()
-    object SuperAdmin : AuthState() // <--- NOVO
+    object SuperAdmin : AuthState()
     data class Error(val message: String) : AuthState()
 }
 
@@ -24,11 +25,20 @@ class AuthViewModel : ViewModel() {
     private val auth = Firebase.auth
     private val db = Firebase.firestore
 
-    // Defina aqui o seu e-mail de administrador
-    private val SUPER_ADMIN_EMAIL = "wallisonfreitas00@gmail.com" // ALTERE PARA O SEU E-MAIL REAL
+    // --- ATENÇÃO AQUI ---
+    // Verifique letra por letra. Não deixe espaços no final.
+    private val SUPER_ADMIN_EMAIL = "wallisonfreitas00@gmail.com"
 
     var authState by mutableStateOf<AuthState>(AuthState.Loading)
         private set
+
+    // Propriedade para saber se quem está logado é o Admin
+    val isUserSuperAdmin: Boolean
+        get() {
+            val current = auth.currentUser?.email?.trim()?.lowercase() ?: ""
+            val admin = SUPER_ADMIN_EMAIL.trim().lowercase()
+            return current == admin
+        }
 
     init {
         checkAuthStatus()
@@ -39,23 +49,41 @@ class AuthViewModel : ViewModel() {
         if (currentUser == null) {
             authState = AuthState.LoggedOut
         } else {
-            // --- CORREÇÃO: VERIFICAÇÃO PRIORITÁRIA ---
-            // Verifica o email ignorando maiúsculas/minúsculas e espaços
-            val currentEmail = currentUser.email?.trim() ?: ""
+            val currentEmail = currentUser.email?.trim()?.lowercase() ?: ""
+            val targetAdminEmail = SUPER_ADMIN_EMAIL.trim().lowercase()
 
-            if (currentEmail.equals(SUPER_ADMIN_EMAIL.trim(), ignoreCase = true)) {
+            // LOG DE DEPURAÇÃO (Veja isso no Logcat do Android Studio)
+            Log.d("AUTH_DEBUG", "Email Logado: '$currentEmail'")
+            Log.d("AUTH_DEBUG", "Email Esperado: '$targetAdminEmail'")
+            Log.d("AUTH_DEBUG", "São iguais? ${currentEmail == targetAdminEmail}")
+
+            if (currentEmail == targetAdminEmail) {
+                Log.d("AUTH_DEBUG", ">>> USUÁRIO É ADMIN. INDO PARA PAINEL.")
                 authState = AuthState.SuperAdmin
-                return // <--- PARA TUDO E VAI PARA TELA DE ADMIN
+                return // <--- Para aqui e vai para o Admin
             }
 
-            // Se não for admin, segue o fluxo normal
+            Log.d("AUTH_DEBUG", ">>> USUÁRIO COMUM. BUSCANDO PERFIL.")
             fetchUserProfile(currentUser.uid)
         }
     }
 
-    private fun fetchUserProfile(uid: String) {
-        val currentUser = auth.currentUser
+    // --- MODO ESPIÃO ---
+    fun enterCompanyMode(companyId: String) {
+        if (isUserSuperAdmin) {
+            authState = AuthState.LoggedIn(companyId, "admin_viewer")
+        }
+    }
 
+    fun exitCompanyMode() {
+        if (isUserSuperAdmin) {
+            authState = AuthState.SuperAdmin
+        }
+    }
+
+    // --- FUNÇÕES DE USUÁRIO COMUM ---
+
+    private fun fetchUserProfile(uid: String) {
         viewModelScope.launch {
             try {
                 val doc = db.collection("users").document(uid).get().await()
@@ -64,7 +92,6 @@ class AuthViewModel : ViewModel() {
                     val role = doc.getString("role") ?: "employee"
 
                     if (!companyId.isNullOrBlank()) {
-                        // Verifica se a empresa está bloqueada
                         val companyDoc = db.collection("companies").document(companyId).get().await()
                         val status = companyDoc.getString("status") ?: "active"
 
@@ -102,9 +129,7 @@ class AuthViewModel : ViewModel() {
                     role = "owner"
                 )
                 db.collection("users").document(user.uid).set(userProfile).await()
-
                 createDefaultMenuStructure(company.id)
-
                 authState = AuthState.LoggedIn(company.id, "owner")
                 onSuccess()
             } catch (e: Exception) {
@@ -115,8 +140,7 @@ class AuthViewModel : ViewModel() {
 
     private suspend fun createDefaultMenuStructure(companyId: String) {
         val defaultCategories = listOf(
-            mapOf("name" to "Lanches", "defaultIngredients" to listOf("Pão", "Carne"), "availableOptionals" to emptyList<Any>()),
-            mapOf("name" to "Bebidas", "defaultIngredients" to listOf("Gelo"), "availableOptionals" to emptyList<Any>())
+            mapOf("name" to "Lanches", "defaultIngredients" to listOf("Pão", "Carne"), "availableOptionals" to emptyList<Any>())
         )
         db.collection("companies").document(companyId)
             .collection("settings").document("menu_structure")
