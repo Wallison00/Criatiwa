@@ -2,23 +2,25 @@ package com.walli.flexcriatiwa
 
 import com.google.firebase.Timestamp
 
-// Dados do Usuário
 data class UserProfile(
     val uid: String = "",
     val email: String = "",
     val name: String = "",
     val companyId: String? = null,
-    val role: String = "owner" // owner, waiter, kitchen, employee
+    val role: String = "owner"
 )
 
-// Dados da Empresa (Com shareCode e expiresAt)
 data class Company(
     val id: String = "",
     val name: String = "",
     val ownerId: String = "",
+    // NOVO: Email do dono (para contato/identificação)
+    val ownerEmail: String = "",
     val createdAt: Timestamp = Timestamp.now(),
-    val status: String = "active", // active, blocked
+    // NOVO: Data da última modificação
+    val updatedAt: Timestamp = Timestamp.now(),
+    val status: String = "active",
     val plan: String = "free",
-    val expiresAt: Timestamp? = null, // null = Acesso Vitalício
-    val shareCode: String = "" // <--- O CAMPO QUE FALTAVA
+    val expiresAt: Timestamp? = null,
+    val shareCode: String = ""
 )

@@ -123,7 +123,17 @@ class AuthViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val newCompanyRef = db.collection("companies").document()
-                val company = Company(id = newCompanyRef.id, name = companyName, ownerId = user.uid)
+                val uniqueCode = (1..6).map { ('A'..'Z').random() }.joinToString("")
+
+                val company = Company(
+                    id = newCompanyRef.id,
+                    name = companyName,
+                    ownerId = user.uid,
+                    ownerEmail = user.email ?: "Sem E-mail", // <--- SALVANDO O EMAIL AQUI
+                    shareCode = uniqueCode,
+                    createdAt = Timestamp.now(),
+                    updatedAt = Timestamp.now() // <--- INICIALIZANDO DATA DE ATUALIZAÇÃO
+                )
                 newCompanyRef.set(company).await()
 
                 val userProfile = UserProfile(

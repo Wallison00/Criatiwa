@@ -1,17 +1,23 @@
 package com.walli.flexcriatiwa
 
 import android.widget.Toast
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState // <--- IMPORTANTE
-import androidx.compose.foundation.verticalScroll // <--- IMPORTANTE
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
@@ -22,8 +28,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import java.util.Calendar
+import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,19 +41,21 @@ fun SuperAdminScreen(
     val viewModel: SuperAdminViewModel = viewModel()
     val context = LocalContext.current
 
+    LaunchedEffect(key1 = true) {
+        viewModel.uiMessage.collectLatest { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
     // Estados para o Date Picker
     var showDatePicker by remember { mutableStateOf(false) }
     var selectedCompanyId by remember { mutableStateOf<String?>(null) }
-
-    // Configuração do Estado do Calendário
     val datePickerState = rememberDatePickerState()
 
-    // Lógica para sincronizar a data quando abrir o calendário
     LaunchedEffect(showDatePicker) {
         if (showDatePicker && selectedCompanyId != null) {
             val company = viewModel.companies.find { it.id == selectedCompanyId }
             val currentMillis = company?.expiresAt?.toDate()?.time ?: System.currentTimeMillis()
-            // Define a data selecionada no calendário
             datePickerState.selectedDateMillis = currentMillis
         }
     }
@@ -63,7 +72,6 @@ fun SuperAdminScreen(
         }
     ) { innerPadding ->
 
-        // DIÁLOGO DE DATA
         if (showDatePicker) {
             DatePickerDialog(
                 onDismissRequest = { showDatePicker = false },
@@ -71,43 +79,24 @@ fun SuperAdminScreen(
                     TextButton(onClick = {
                         val selectedDateMillis = datePickerState.selectedDateMillis
                         if (selectedCompanyId != null && selectedDateMillis != null) {
-                            // 1. Chama o ViewModel para salvar no Firebase
                             viewModel.updateExpirationDate(selectedCompanyId!!, selectedDateMillis)
-
-                            // 2. Feedback visual
-                            Toast.makeText(context, "Data salva! Atualizando...", Toast.LENGTH_SHORT).show()
-
-                            // 3. Fecha o diálogo
                             showDatePicker = false
                         }
-                    }) {
-                        Text("Confirmar Data", fontWeight = FontWeight.Bold)
-                    }
+                    }) { Text("Confirmar") }
                 },
-                dismissButton = {
-                    TextButton(onClick = { showDatePicker = false }) { Text("Cancelar") }
-                }
+                dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("Cancelar") } }
             ) {
-                // Adicionei o scroll aqui para garantir que o botão "Tornar Vitalício" apareça em telas pequenas
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     DatePicker(state = datePickerState)
-
                     Spacer(modifier = Modifier.height(8.dp))
-
-                    // Botão para tornar Vitalício
                     Button(
                         onClick = {
-                            if (selectedCompanyId != null) {
-                                viewModel.updateExpirationDate(selectedCompanyId!!, null)
-                                Toast.makeText(context, "Validade removida (Vitalício)", Toast.LENGTH_SHORT).show()
-                            }
+                            if (selectedCompanyId != null) viewModel.updateExpirationDate(selectedCompanyId!!, null)
                             showDatePicker = false
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer),
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).fillMaxWidth()
-                    ) {
-                        Text("Remover Data (Tornar Vitalício)")
-                    }
+                        modifier = Modifier.padding(horizontal = 24.dp).fillMaxWidth()
+                    ) { Text("Tornar Vitalício") }
                     Spacer(modifier = Modifier.height(16.dp))
                 }
             }
@@ -119,10 +108,10 @@ fun SuperAdminScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(viewModel.companies) { company ->
-                    CompanyAdminCard(
+                    CompanyExpandableCard(
                         company = company,
                         viewModel = viewModel,
                         onToggleStatus = { viewModel.toggleCompanyStatus(company) },
@@ -140,7 +129,7 @@ fun SuperAdminScreen(
 }
 
 @Composable
-fun CompanyAdminCard(
+fun CompanyExpandableCard(
     company: Company,
     viewModel: SuperAdminViewModel,
     onToggleStatus: () -> Unit,
@@ -148,13 +137,16 @@ fun CompanyAdminCard(
     onAccess: () -> Unit,
     onOpenCalendar: () -> Unit
 ) {
+    var expanded by remember { mutableStateOf(false) }
+
     val isActive = company.status == "active"
     val statusColor = if (isActive) Color(0xFF4CAF50) else Color(0xFFE53935)
 
-    // Lógica visual de vencimento
+    // Formatação de Datas
+    val createdDate = viewModel.formatDate(company.createdAt)
+    val updatedDate = viewModel.formatDate(company.updatedAt)
+    val expirationText = if(company.expiresAt == null) "Vitalício" else viewModel.formatDate(company.expiresAt).split(" ")[0] // Mostra só a data sem hora para validade
     val isExpired = company.expiresAt != null && company.expiresAt.toDate().time < System.currentTimeMillis()
-    val expirationColor = if (isExpired) Color.Red else Color.Gray
-    val expirationText = viewModel.formatDate(company.expiresAt)
 
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -168,52 +160,79 @@ fun CompanyAdminCard(
         )
     }
 
-    Card(elevation = CardDefaults.cardElevation(4.dp)) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            // CABEÇALHO: Nome e Botão de Espiar
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+    Card(
+        elevation = CardDefaults.cardElevation(4.dp),
+        modifier = Modifier.fillMaxWidth().animateContentSize(
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // --- LINHA 1: Título e Ícone de Expandir ---
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }
+            ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(company.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(company.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(modifier = Modifier.size(8.dp), shape = MaterialTheme.shapes.small, color = statusColor) {}
+                        Spacer(Modifier.width(6.dp))
+                        Text(if(isActive) "Ativo" else "Bloqueado", color = statusColor, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(12.dp))
+
+                        // Validade Resumida
+                        Icon(Icons.Default.CalendarMonth, null, modifier = Modifier.size(16.dp), tint = if(isExpired) Color.Red else Color.Gray)
                         Spacer(Modifier.width(4.dp))
-                        Text(if(isActive) "Ativo" else "Bloqueado", color = statusColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        Text(expirationText, color = if(isExpired) Color.Red else Color.Gray, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
-                IconButton(onClick = onAccess) { Icon(Icons.Default.Visibility, "Espiar", tint = MaterialTheme.colorScheme.primary) }
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = "Ver detalhes"
+                    )
+                }
             }
 
-            Spacer(Modifier.height(8.dp))
-            Divider()
-            Spacer(Modifier.height(8.dp))
+            // --- CONTEÚDO EXPANDIDO (DETALHES) ---
+            if (expanded) {
+                Divider(modifier = Modifier.padding(vertical = 12.dp))
 
-            // RODAPÉ: Data e Ações
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                // DATA
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CalendarMonth, null, tint = expirationColor, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Column {
-                        Text("Vencimento:", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                        Text(
-                            text = expirationText,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = expirationColor
-                        )
-                    }
-                }
+                DetailRow("E-mail:", company.ownerEmail)
+                DetailRow("Código Equipe:", company.shareCode)
+                Spacer(Modifier.height(8.dp))
+                DetailRow("Criado em:", createdDate)
+                DetailRow("Atualizado em:", updatedDate)
 
-                // AÇÕES
-                Row {
-                    IconButton(onClick = onOpenCalendar) { Icon(Icons.Default.CalendarMonth, "Alterar Data", tint = MaterialTheme.colorScheme.primary) }
-                    IconButton(onClick = onToggleStatus) {
+                Spacer(Modifier.height(16.dp))
+
+                // --- AÇÕES DO ADMIN ---
+                Text("Ações Administrativas", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    FilledTonalIconButton(onClick = onAccess) { Icon(Icons.Default.Visibility, "Espiar") }
+                    FilledTonalIconButton(onClick = onOpenCalendar) { Icon(Icons.Default.CalendarMonth, "Validade") }
+                    FilledTonalIconButton(onClick = onToggleStatus) {
                         if (isActive) Icon(Icons.Default.Block, "Bloquear", tint = Color.Gray)
                         else Icon(Icons.Default.CheckCircle, "Ativar", tint = Color.Green)
                     }
-                    IconButton(onClick = { showDeleteDialog = true }) { Icon(Icons.Default.Delete, "Excluir", tint = MaterialTheme.colorScheme.error) }
+                    FilledTonalIconButton(onClick = { showDeleteDialog = true }, colors = IconButtonDefaults.filledTonalIconButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                        Icon(Icons.Default.Delete, "Excluir")
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun DetailRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Color.Gray, modifier = Modifier.width(100.dp))
+        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Normal)
     }
 }

@@ -23,7 +23,6 @@ class SuperAdminViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
         private set
 
-    // Canal para enviar mensagens de erro/sucesso para a tela
     private val _uiMessage = MutableSharedFlow<String>()
     val uiMessage = _uiMessage.asSharedFlow()
 
@@ -38,19 +37,21 @@ class SuperAdminViewModel : ViewModel() {
                 val snapshot = db.collection("companies").get().await()
                 companies = snapshot.documents.mapNotNull { doc ->
                     try {
-                        // Agora o AuthData.kt já tem o campo shareCode, então isso vai compilar
                         Company(
                             id = doc.id,
                             name = doc.getString("name") ?: "Sem Nome",
                             ownerId = doc.getString("ownerId") ?: "",
+                            ownerEmail = doc.getString("ownerEmail") ?: "Não registrado",
                             status = doc.getString("status") ?: "active",
-                            shareCode = doc.getString("shareCode") ?: "", // <--- AQUI ESTAVA O ERRO ANTES
+                            shareCode = doc.getString("shareCode") ?: "",
+                            createdAt = doc.getTimestamp("createdAt") ?: Timestamp.now(),
+                            updatedAt = doc.getTimestamp("updatedAt") ?: Timestamp.now(),
                             expiresAt = doc.getTimestamp("expiresAt")
                         )
                     } catch (e: Exception) { null }
                 }.filter {
                     it.name.isNotBlank() && it.name != "Sem Nome"
-                }.sortedBy { it.name }
+                }.sortedByDescending { it.createdAt }
             } catch (e: Exception) {
                 _uiMessage.emit("Erro ao carregar: ${e.message}")
             } finally {
@@ -64,12 +65,13 @@ class SuperAdminViewModel : ViewModel() {
             val newStatus = if (company.status == "active") "blocked" else "active"
             try {
                 db.collection("companies").document(company.id)
-                    .update("status", newStatus)
+                    .update(mapOf(
+                        "status" to newStatus,
+                        "updatedAt" to Timestamp.now()
+                    ))
                     .await()
 
-                companies = companies.map {
-                    if (it.id == company.id) it.copy(status = newStatus) else it
-                }
+                fetchAllCompanies()
                 _uiMessage.emit("Status alterado para $newStatus")
             } catch (e: Exception) {
                 _uiMessage.emit("Erro ao alterar status: ${e.message}")
@@ -92,12 +94,17 @@ class SuperAdminViewModel : ViewModel() {
     fun updateExpirationDate(companyId: String, newTimestamp: Long?) {
         viewModelScope.launch {
             try {
-                val updateData = if (newTimestamp != null) {
+                // --- CORREÇÃO AQUI: Any? permite nulos ---
+                val updateData = mutableMapOf<String, Any?>(
+                    "updatedAt" to Timestamp.now()
+                )
+
+                if (newTimestamp != null) {
                     val date = Date(newTimestamp)
-                    val firebaseTimestamp = Timestamp(date)
-                    mapOf("expiresAt" to firebaseTimestamp)
+                    updateData["expiresAt"] = Timestamp(date)
                 } else {
-                    mapOf("expiresAt" to null)
+                    // Agora isso é permitido porque o mapa aceita Any?
+                    updateData["expiresAt"] = null
                 }
 
                 db.collection("companies").document(companyId)
@@ -107,16 +114,15 @@ class SuperAdminViewModel : ViewModel() {
                 _uiMessage.emit("Data salva com sucesso!")
                 fetchAllCompanies()
             } catch (e: Exception) {
-                val erro = e.message ?: "Erro desconhecido"
-                _uiMessage.emit("ERRO AO SALVAR DATA: $erro")
+                _uiMessage.emit("Erro ao salvar data: ${e.message}")
                 android.util.Log.e("SuperAdminViewModel", "Erro updateExpirationDate", e)
             }
         }
     }
 
     fun formatDate(timestamp: Timestamp?): String {
-        if (timestamp == null) return "Vitalício"
-        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR"))
+        if (timestamp == null) return "-"
+        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("pt", "BR"))
         return sdf.format(timestamp.toDate())
     }
 }
