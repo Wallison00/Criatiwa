@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.ExitToApp
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -45,179 +46,134 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             FlexCriatiwaTheme {
-                AppNavigation()
+                RootNavigation()
             }
         }
     }
 }
 
 @Composable
-fun AppNavigation() {
-    val navController = rememberNavController()
+fun RootNavigation() {
+    val authViewModel: AuthViewModel = viewModel()
+    val authState = authViewModel.authState
 
+    // Gerenciador de Estados de Autenticação
+    when (authState) {
+        is AuthState.Loading -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+        is AuthState.LoggedOut -> {
+            var showRegister by remember { mutableStateOf(false) }
+
+            if (showRegister) {
+                RegisterCompanyScreen(
+                    authViewModel = authViewModel,
+                    onRegistered = { /* O ViewModel já atualiza o estado internamente */ }
+                )
+            } else {
+                LoginScreen(
+                    onLoginSuccess = {
+                        // --- CORREÇÃO AQUI ---
+                        // Avisa o ViewModel que o login ocorreu para ele buscar os dados da empresa
+                        authViewModel.checkAuthStatus()
+                    },
+                    onNavigateToRegister = { showRegister = true }
+                )
+            }
+        }
+        is AuthState.NeedsCompanyRegistration -> {
+            RegisterCompanyScreen(
+                authViewModel = authViewModel,
+                onRegistered = { /* O ViewModel já atualiza o estado internamente */ }
+            )
+        }
+        is AuthState.Error -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Erro: ${authState.message}", color = Color.Red)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { authViewModel.checkAuthStatus() }) { // Melhor usar checkAuthStatus aqui também
+                        Text("Tentar Novamente")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(onClick = { authViewModel.signOut() }) {
+                        Text("Sair")
+                    }
+                }
+            }
+        }
+        is AuthState.SuperAdmin -> {
+            // Rota para o Painel Administrativo
+            SuperAdminScreen(
+                onSignOut = { authViewModel.signOut() }
+            )
+        }
+        is AuthState.LoggedIn -> {
+            // USUÁRIO LOGADO E COM EMPRESA: Inicia o App Principal
+            AuthorizedApp(
+                companyId = authState.companyId,
+                authViewModel = authViewModel
+            )
+        }
+    }
+}
+
+@Composable
+fun AuthorizedApp(companyId: String, authViewModel: AuthViewModel) {
+    val navController = rememberNavController()
     val orderViewModel: OrderViewModel = viewModel()
     val managementViewModel: ManagementViewModel = viewModel()
     val kitchenViewModel: KitchenViewModel = viewModel()
 
+    LaunchedEffect(companyId) {
+        managementViewModel.updateCompanyContext(companyId)
+        kitchenViewModel.updateCompanyContext(companyId)
+    }
+
     NavHost(navController = navController, startDestination = "main_layout") {
-
         composable("main_layout") {
-            MainAppLayout(
-                managementViewModel = managementViewModel,
-                orderViewModel = orderViewModel,
-                kitchenViewModel = kitchenViewModel,
-                navController = navController
-            )
+            MainAppLayout(managementViewModel, orderViewModel, kitchenViewModel, authViewModel, navController)
         }
-
         composable("product_management") {
-            ProductManagementScreen(
-                managementViewModel = managementViewModel,
-                onNavigateBack = { navController.popBackStack() },
-                onAddProduct = {
-                    managementViewModel.clearEditState()
-                    navController.navigate("add_edit_product")
-                },
-                onEditProduct = { productToEdit ->
-                    managementViewModel.loadProductForEdit(productToEdit)
-                    navController.navigate("add_edit_product")
-                }
-            )
+            ProductManagementScreen(managementViewModel, { navController.popBackStack() }, { managementViewModel.clearEditState(); navController.navigate("add_edit_product") }, { managementViewModel.loadProductForEdit(it); navController.navigate("add_edit_product") })
         }
-
-        composable("add_edit_product") {
-            AddEditProductScreen(
-                managementViewModel = managementViewModel,
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
-
-        composable("manage_categories") {
-            CategoryManagementScreen(
-                managementViewModel = managementViewModel,
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
-
-        composable("manage_ingredients") {
-            IngredientManagementScreen(
-                managementViewModel = managementViewModel,
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
-
-        composable("manage_optionals") {
-            OptionalManagementScreen(
-                managementViewModel = managementViewModel,
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
+        composable("add_edit_product") { AddEditProductScreen(managementViewModel, { navController.popBackStack() }) }
+        composable("manage_categories") { CategoryManagementScreen(managementViewModel, { navController.popBackStack() }) }
 
         composable("detail/{itemId}") { backStackEntry ->
             val itemId = backStackEntry.arguments?.getString("itemId")
-            val managedProduct = remember(itemId) {
-                managementViewModel.products.find { it.id == itemId }
-            }
-
-            if (managedProduct != null) {
-                val menuItem = MenuItem(
-                    id = managedProduct.id,
-                    code = managedProduct.code,
-                    name = managedProduct.name,
-                    price = managedProduct.price,
-                    imageUrl = managedProduct.imageUrl
-                )
-
-                // CORREÇÃO: Usamos os opcionais configurados no produto ou buscamos na categoria
-                val productSpecificOptionals = managedProduct.optionals.toList()
-
+            val product = managementViewModel.products.find { it.id == itemId }
+            if (product != null) {
                 ItemDetailScreen(
-                    product = menuItem,
-                    productIngredients = managedProduct.ingredients.toList(),
-                    productOptionals = productSpecificOptionals,
-                    availableOptionals = productSpecificOptionals, // Passamos a lista do produto para cálculo de preço
-                    orderViewModel = orderViewModel,
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToOrder = { navController.popBackStack() }
+                    product = MenuItem(product.id, product.code, product.name, product.price, product.imageUrl),
+                    productIngredients = product.ingredients.toList(),
+                    productOptionals = product.optionals.toList(),
+                    availableOptionals = product.optionals.toList(),
+                    orderViewModel = orderViewModel, onNavigateBack = { navController.popBackStack() }, onNavigateToOrder = { navController.popBackStack() }
                 )
-            } else {
-                LaunchedEffect(Unit) { navController.popBackStack() }
             }
         }
 
         composable("order_summary/{tableNumber}?") { backStackEntry ->
             val tableNumberStr = backStackEntry.arguments?.getString("tableNumber")
             val tableNumber = if (tableNumberStr == "null") null else tableNumberStr?.toIntOrNull()
-
-            val existingItemsOnTable = if (tableNumber != null) {
-                kitchenViewModel.ordersByTable.value[tableNumber]?.flatMap { it.items } ?: emptyList()
-            } else {
-                emptyList()
-            }
+            val existingItems = if (tableNumber != null) kitchenViewModel.ordersByTable.value[tableNumber]?.flatMap { it.items } ?: emptyList() else emptyList()
 
             LaunchedEffect(tableNumber) {
-                if (tableNumber != null) {
-                    orderViewModel.clearAll()
-                    val activeOrder = kitchenViewModel.ordersByTable.value[tableNumber]?.firstOrNull()
-
-                    if (activeOrder != null) {
-                        orderViewModel.updateDestination(
-                            newDestinationType = activeOrder.destinationType ?: "Local",
-                            newTables = activeOrder.tableSelection,
-                            newClientName = activeOrder.clientName ?: ""
-                        )
-                    } else {
-                        orderViewModel.updateDestination(
-                            newDestinationType = "Local",
-                            newTables = setOf(tableNumber),
-                            newClientName = ""
-                        )
-                    }
-                }
+                orderViewModel.clearAll()
+                val order = kitchenViewModel.ordersByTable.value[tableNumber]?.firstOrNull()
+                if (order != null) orderViewModel.updateDestination(order.destinationType ?: "Local", order.tableSelection, order.clientName ?: "")
+                else if (tableNumber != null) orderViewModel.updateDestination("Local", setOf(tableNumber), "")
             }
 
-            OrderScreen(
-                orderViewModel = orderViewModel,
-                kitchenViewModel = kitchenViewModel,
-                existingItems = existingItemsOnTable,
-                onCancelOrder = {
-                    orderViewModel.clearAll()
-                    navController.popBackStack()
-                },
-                onAddItem = {
-                    navController.navigate("main_layout")
-                },
-                onEditItem = { itemToEdit ->
-                    orderViewModel.loadItemForEdit(itemToEdit)
-                    navController.navigate("detail/${itemToEdit.menuItem.id}")
-                },
-                onSendToKitchen = {
-                    val destination = orderViewModel.destinationType ?: "Viagem"
-                    val tables = orderViewModel.tableSelection
-                    val client = orderViewModel.clientName ?: "Cliente Balcão"
-
-                    if (tableNumber != null) {
-                        kitchenViewModel.addItemsToTableOrder(
-                            tableNumber = tableNumber,
-                            newItems = orderViewModel.currentCartItems
-                        )
-                    } else {
-                        kitchenViewModel.submitNewOrder(
-                            items = orderViewModel.currentCartItems,
-                            destinationType = destination,
-                            tableSelection = tables,
-                            clientName = client,
-                            payments = orderViewModel.payments
-                        )
-                    }
-
-                    orderViewModel.clearAll()
-                    navController.navigate("main_layout") {
-                        popUpTo("main_layout") { inclusive = true }
-                    }
-                },
-                onNavigateBack = { navController.popBackStack() }
-            )
+            OrderScreen(orderViewModel, kitchenViewModel, existingItems, { orderViewModel.clearAll(); navController.popBackStack() }, { navController.navigate("main_layout") }, { orderViewModel.loadItemForEdit(it); navController.navigate("detail/${it.menuItem.id}") },
+                {
+                    if (tableNumber != null) kitchenViewModel.addItemsToTableOrder(tableNumber, orderViewModel.currentCartItems)
+                    else kitchenViewModel.submitNewOrder(orderViewModel.currentCartItems, orderViewModel.destinationType, orderViewModel.tableSelection, orderViewModel.clientName, orderViewModel.payments)
+                    orderViewModel.clearAll(); navController.navigate("main_layout") { popUpTo("main_layout") { inclusive = true } }
+                }, { navController.popBackStack() })
         }
     }
 }
@@ -228,80 +184,48 @@ fun MainAppLayout(
     managementViewModel: ManagementViewModel,
     orderViewModel: OrderViewModel,
     kitchenViewModel: KitchenViewModel,
+    authViewModel: AuthViewModel,
     navController: NavController
 ) {
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    var selectedScreenIndex by remember { mutableIntStateOf(0) }
-
+    var selectedIndex by remember { mutableIntStateOf(0) }
     val readyOrders by kitchenViewModel.readyOrders.collectAsState(initial = emptyList())
 
-    val drawerItems = listOf(
-        "Cardápio" to Icons.Filled.RestaurantMenu,
-        "Cozinha" to Icons.Default.SoupKitchen,
-        "Balcão" to Icons.Filled.Storefront,
-        "Mesa" to Icons.Filled.TableRestaurant,
-        "Gestão" to Icons.Outlined.Settings
-    )
+    val items = listOf("Cardápio" to Icons.Filled.RestaurantMenu, "Cozinha" to Icons.Default.SoupKitchen, "Balcão" to Icons.Filled.Storefront, "Mesa" to Icons.Filled.TableRestaurant, "Gestão" to Icons.Outlined.Settings)
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
                 Spacer(Modifier.height(16.dp))
-                drawerItems.forEachIndexed { index, (itemTitle, itemIcon) ->
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Store, null, Modifier.size(40.dp))
+                    Spacer(Modifier.width(16.dp))
+                    Column { Text("FlexCriatiwa", fontWeight = FontWeight.Bold); Text("SaaS Mode", style = MaterialTheme.typography.bodySmall) }
+                }
+                Divider()
+                items.forEachIndexed { index, (title, icon) ->
                     NavigationDrawerItem(
-                        icon = { Icon(itemIcon, contentDescription = itemTitle) },
-                        label = {
-                            BadgedBox(
-                                badge = {
-                                    if (itemTitle == "Balcão" && readyOrders.isNotEmpty()) {
-                                        Badge()
-                                    }
-                                }
-                            ) {
-                                Text(itemTitle)
-                            }
-                        },
-                        selected = selectedScreenIndex == index,
-                        onClick = {
-                            selectedScreenIndex = index
-                            scope.launch { drawerState.close() }
-                        },
+                        icon = { Icon(icon, null) },
+                        label = { BadgedBox(badge = { if (title == "Balcão" && readyOrders.isNotEmpty()) Badge() }) { Text(title) } },
+                        selected = selectedIndex == index,
+                        onClick = { selectedIndex = index; scope.launch { drawerState.close() } },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
                 }
+                Spacer(Modifier.weight(1f))
+                NavigationDrawerItem(icon = { Icon(Icons.Outlined.ExitToApp, null) }, label = { Text("Sair") }, selected = false, onClick = { scope.launch { drawerState.close(); authViewModel.signOut() } }, modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding))
+                Spacer(Modifier.height(16.dp))
             }
         }
     ) {
-        when (selectedScreenIndex) {
-            0 -> MainScreen(
-                managementViewModel = managementViewModel,
-                isOrderInProgress = !orderViewModel.isOrderEmpty,
-                onOpenDrawer = { scope.launch { drawerState.open() } },
-                onNavigateToItemDetail = { itemId -> navController.navigate("detail/$itemId") },
-                onNavigateToOrder = { navController.navigate("order_summary/null") }
-            )
-            1 -> KitchenScreen(
-                kitchenViewModel = kitchenViewModel,
-                onOpenDrawer = { scope.launch { drawerState.open() } }
-            )
-            2 -> CounterScreen(
-                kitchenViewModel = kitchenViewModel,
-                onOpenDrawer = { scope.launch { drawerState.open() } }
-            )
-            3 -> TableScreen(
-                kitchenViewModel = kitchenViewModel,
-                onOpenDrawer = { scope.launch { drawerState.open() } },
-                onTableClick = { tableNum -> navController.navigate("order_summary/$tableNum") }
-            )
-            4 -> ManagementHubScreen(
-                onOpenDrawer = { scope.launch { drawerState.open() } },
-                onNavigateToProducts = { navController.navigate("product_management") },
-                onNavigateToCategories = { navController.navigate("manage_categories") },
-                onNavigateToIngredients = { navController.navigate("manage_ingredients") },
-                onNavigateToOptionals = { navController.navigate("manage_optionals") }
-            )
+        when (selectedIndex) {
+            0 -> MainScreen(managementViewModel, !orderViewModel.isOrderEmpty, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
+            1 -> KitchenScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
+            2 -> CounterScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
+            3 -> TableScreen(kitchenViewModel, { scope.launch { drawerState.open() } }, { navController.navigate("order_summary/$it") })
+            4 -> ManagementHubScreen({ scope.launch { drawerState.open() } }, { navController.navigate("product_management") }, { navController.navigate("manage_categories") }, {}, {})
         }
     }
 }
@@ -321,92 +245,35 @@ fun MainScreen(
     val categoryChipListState = rememberLazyListState()
 
     val categories = remember(managementViewModel.products, searchText) {
-        val allCategories = managementViewModel.productsByCategory
-        if (searchText.isBlank()) {
-            allCategories
-        } else {
-            val query = searchText.lowercase().trim()
-            allCategories.mapNotNull { category ->
-                val filteredItems = category.items.filter { it.name.lowercase().contains(query) }
-                if (filteredItems.isNotEmpty()) category.copy(items = filteredItems) else null
-            }
+        val all = managementViewModel.productsByCategory
+        if (searchText.isBlank()) all else all.mapNotNull { cat ->
+            val items = cat.items.filter { it.name.contains(searchText, ignoreCase = true) }
+            if (items.isNotEmpty()) cat.copy(items = items) else null
         }
     }
 
     val firstVisibleItemIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
     val activeCategoryIndex = remember(firstVisibleItemIndex, categories) {
-        if (categories.isEmpty()) -1 else {
-            0.coerceAtLeast(categories.indices.find { true } ?: 0)
-        }
+        if (categories.isEmpty()) -1 else 0.coerceAtLeast(categories.indices.find { true } ?: 0)
     }
 
     Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Cardápio", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, contentDescription = "Menu") }
-                }
-            )
-        },
-        floatingActionButton = {
-            if (isOrderInProgress) {
-                ExtendedFloatingActionButton(
-                    onClick = onNavigateToOrder,
-                    icon = { Icon(Icons.Filled.ShoppingBag, "Sacola") },
-                    text = { Text("Ver Pedido") }
-                )
-            }
-        }
+        topBar = { CenterAlignedTopAppBar(title = { Text("Cardápio", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, "Menu") } }) },
+        floatingActionButton = { if (isOrderInProgress) ExtendedFloatingActionButton(onClick = onNavigateToOrder, icon = { Icon(Icons.Filled.ShoppingBag, null) }, text = { Text("Ver Pedido") }) }
     ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-            SearchBar(
-                searchText = searchText,
-                onSearchChange = { searchText = it },
-                onClearClick = { searchText = "" }
-            )
-
-            if (categories.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Nenhum item encontrado.")
+        Column(Modifier.padding(innerPadding).fillMaxSize()) {
+            SearchBar(searchText, { searchText = it }, { searchText = "" })
+            if (categories.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nenhum item encontrado.") }
+            else {
+                LazyRow(state = categoryChipListState, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    itemsIndexed(categories) { index, category -> CategoryChip(text = category.name, isSelected = index == activeCategoryIndex, onClick = { scope.launch { if(index == 0) listState.animateScrollToItem(0) } }) }
                 }
-            } else {
-                LazyRow(
-                    state = categoryChipListState,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    itemsIndexed(categories) { index, category ->
-                        CategoryChip(
-                            text = category.name,
-                            isSelected = index == activeCategoryIndex,
-                            onClick = { scope.launch { if(index == 0) listState.animateScrollToItem(0) } }
-                        )
-                    }
-                }
-
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp)
-                ) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp)) {
                     categories.forEach { category ->
                         stickyHeader { CategoryHeader(category.name) }
                         item {
-                            LazyVerticalGrid(
-                                columns = GridCells.Adaptive(minSize = 150.dp),
-                                contentPadding = PaddingValues(vertical = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.heightIn(max = 2000.dp)
-                            ) {
-                                items(category.items) { menuItem ->
-                                    MenuItemCard(
-                                        item = menuItem,
-                                        onClick = { onNavigateToItemDetail(menuItem.id) }
-                                    )
-                                }
+                            LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 150.dp), contentPadding = PaddingValues(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.heightIn(max = 2000.dp)) {
+                                items(category.items) { MenuItemCard(item = it, onClick = { onNavigateToItemDetail(it.id) }) }
                             }
                         }
                     }
@@ -416,8 +283,7 @@ fun MainScreen(
     }
 }
 
-// --- COMPONENTES VISUAIS ---
-
+// ... (Componentes Visuais: MenuItemCard, CategoryHeader, CategoryChip, SearchBar - Mantenha os mesmos)
 @Composable
 fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
     val decodedBitmap = remember(item.imageUrl) {

@@ -48,6 +48,7 @@ dependencies {
 
     // Firebase
     implementation(platform(libs.firebase.bom))
+    implementation("com.google.firebase:firebase-auth")
     implementation(libs.firebase.firestore)
 
     // Outras libs
@@ -63,4 +64,7 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    // Biblioteca de Segurança para salvar senha criptografada
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }
