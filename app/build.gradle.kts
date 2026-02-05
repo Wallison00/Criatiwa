@@ -67,4 +67,10 @@ dependencies {
 
     // Biblioteca de Segurança para salvar senha criptografada
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Gerar QR Code
+    implementation("com.google.zxing:core:3.5.2")
+
+    // Ler QR Code (Scanner)
+    implementation("com.github.yuriy-budiyev:code-scanner:2.3.2")
 }

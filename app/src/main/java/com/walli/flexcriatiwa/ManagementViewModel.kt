@@ -16,6 +16,7 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.io.ByteArrayOutputStream
 
 class ManagementViewModel : ViewModel() {
@@ -26,6 +27,7 @@ class ManagementViewModel : ViewModel() {
     private var productsListener: ListenerRegistration? = null
     private var settingsListener: ListenerRegistration? = null
 
+    // --- ESTADOS ---
     var products by mutableStateOf<List<ManagedProduct>>(emptyList())
         private set
 
@@ -34,9 +36,15 @@ class ManagementViewModel : ViewModel() {
 
     var categoryConfigs by mutableStateOf<List<CategoryConfig>>(emptyList())
 
-    // --- INICIALIZAÇÃO MULTI-TENANT ---
+    // Dados da Empresa
+    var currentCompany by mutableStateOf<Company?>(null)
+        private set
+
+    var errorMessage by mutableStateOf<String?>(null)
+        private set
+
+    // --- INICIALIZAÇÃO ---
     fun updateCompanyContext(companyId: String) {
-        if (currentCompanyId == companyId) return
         currentCompanyId = companyId
 
         productsListener?.remove()
@@ -44,8 +52,48 @@ class ManagementViewModel : ViewModel() {
 
         startListeningProducts(companyId)
         startListeningSettings(companyId)
+        loadCompanyDetails(companyId)
     }
 
+    // --- BUSCA DADOS DA EMPRESA (COM AUTO-CORREÇÃO DE CÓDIGO) ---
+    private fun loadCompanyDetails(companyId: String) {
+        viewModelScope.launch {
+            errorMessage = null
+            try {
+                val doc = db.collection("companies").document(companyId).get().await()
+                if (doc.exists()) {
+                    var company = doc.toObject(Company::class.java)
+
+                    if (company != null) {
+                        // --- A MÁGICA ACONTECE AQUI ---
+                        // Se a empresa não tiver código (antiga), geramos um agora e salvamos!
+                        if (company.shareCode.isBlank()) {
+                            val newCode = (1..6).map { ('A'..'Z').random() }.joinToString("")
+
+                            // Atualiza no Banco
+                            db.collection("companies").document(companyId)
+                                .update("shareCode", newCode)
+                                .await()
+
+                            // Atualiza na Memória para a tela ver
+                            company = company.copy(shareCode = newCode)
+                        }
+
+                        currentCompany = company
+                    } else {
+                        errorMessage = "Erro: Dados corrompidos."
+                    }
+                } else {
+                    errorMessage = "Erro: Empresa não encontrada."
+                }
+            } catch (e: Exception) {
+                errorMessage = "Falha ao carregar: ${e.message}"
+                Log.e("MngVM", "Erro loadCompanyDetails", e)
+            }
+        }
+    }
+
+    // --- ESCUTAS EM TEMPO REAL ---
     private fun startListeningProducts(companyId: String) {
         productsListener = db.collection("companies").document(companyId).collection("products")
             .addSnapshotListener { snapshot, e ->
@@ -105,6 +153,7 @@ class ManagementViewModel : ViewModel() {
         saveCategoriesToFirebase()
     }
 
+    // --- FUNÇÕES DE CATEGORIA ---
     fun addCategory(name: String) {
         if (categoryConfigs.none { it.name.equals(name, ignoreCase = true) }) {
             categoryConfigs = categoryConfigs + CategoryConfig(name)
@@ -146,6 +195,7 @@ class ManagementViewModel : ViewModel() {
         db.collection("companies").document(companyId).collection("settings").document("menu_structure").set(dataToSave)
     }
 
+    // --- FUNÇÕES DE PRODUTO ---
     fun saveProductWithImage(context: Context, product: ManagedProduct, newImageUri: Uri?, onSuccess: () -> Unit) {
         val companyId = currentCompanyId ?: return
         viewModelScope.launch(Dispatchers.IO) {

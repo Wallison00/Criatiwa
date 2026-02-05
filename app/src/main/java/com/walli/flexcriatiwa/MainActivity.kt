@@ -62,28 +62,49 @@ fun RootNavigation() {
         is AuthState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         is AuthState.LoggedOut -> {
             var showRegister by remember { mutableStateOf(false) }
-            if (showRegister) RegisterCompanyScreen(authViewModel) { }
-            else LoginScreen(onLoginSuccess = { authViewModel.checkAuthStatus() }, onNavigateToRegister = { showRegister = true })
+            var showQRScanner by remember { mutableStateOf(false) }
+
+            if (showQRScanner) {
+                QRScannerScreen(
+                    authViewModel = authViewModel,
+                    onNavigateBack = { showQRScanner = false }
+                )
+            } else if (showRegister) {
+                RegisterCompanyScreen(
+                    authViewModel = authViewModel,
+                    onRegistered = { },
+                    onNavigateToJoin = { }
+                )
+            } else {
+                LoginScreen(
+                    authViewModel = authViewModel,
+                    onNavigateToRegister = { showRegister = true },
+                    onNavigateToQRCode = { showQRScanner = true }
+                )
+            }
         }
-        is AuthState.NeedsCompanyRegistration -> RegisterCompanyScreen(authViewModel) { }
+        is AuthState.NeedsCompanyRegistration -> {
+            var isJoining by remember { mutableStateOf(false) }
+            if (isJoining) {
+                JoinCompanyScreen(authViewModel = authViewModel, onNavigateToCreate = { isJoining = false })
+            } else {
+                RegisterCompanyScreen(authViewModel = authViewModel, onRegistered = { }, onNavigateToJoin = { isJoining = true })
+            }
+        }
         is AuthState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Erro: ${authState.message}", color = Color.Red)
+                Text("Erro: ${authState.message}", color = Color.Red, modifier = Modifier.padding(16.dp))
                 Button(onClick = { authViewModel.checkAuthStatus() }) { Text("Tentar Novamente") }
                 TextButton(onClick = { authViewModel.signOut() }) { Text("Sair") }
             }
         }
-
-        // Rota Admin
         is AuthState.SuperAdmin -> SuperAdminScreen(authViewModel, onSignOut = { authViewModel.signOut() })
-
-        // Rota App (Cliente ou Admin Espião)
-        is AuthState.LoggedIn -> AuthorizedApp(authState.companyId, authViewModel)
+        is AuthState.LoggedIn -> AuthorizedApp(authState.companyId, authViewModel, authState.isOfflineMode)
     }
 }
 
 @Composable
-fun AuthorizedApp(companyId: String, authViewModel: AuthViewModel) {
+fun AuthorizedApp(companyId: String, authViewModel: AuthViewModel, isOffline: Boolean) {
     val navController = rememberNavController()
     val orderViewModel: OrderViewModel = viewModel()
     val managementViewModel: ManagementViewModel = viewModel()
@@ -96,7 +117,7 @@ fun AuthorizedApp(companyId: String, authViewModel: AuthViewModel) {
 
     NavHost(navController = navController, startDestination = "main_layout") {
         composable("main_layout") {
-            MainAppLayout(managementViewModel, orderViewModel, kitchenViewModel, authViewModel, navController)
+            MainAppLayout(managementViewModel, orderViewModel, kitchenViewModel, authViewModel, navController, isOffline)
         }
         composable("product_management") {
             ProductManagementScreen(managementViewModel, { navController.popBackStack() }, { managementViewModel.clearEditState(); navController.navigate("add_edit_product") }, { managementViewModel.loadProductForEdit(it); navController.navigate("add_edit_product") })
@@ -147,7 +168,8 @@ fun MainAppLayout(
     orderViewModel: OrderViewModel,
     kitchenViewModel: KitchenViewModel,
     authViewModel: AuthViewModel,
-    navController: NavController
+    navController: NavController,
+    isOffline: Boolean
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -155,8 +177,6 @@ fun MainAppLayout(
     val readyOrders by kitchenViewModel.readyOrders.collectAsState(initial = emptyList())
 
     val items = listOf("Cardápio" to Icons.Filled.RestaurantMenu, "Cozinha" to Icons.Default.SoupKitchen, "Balcão" to Icons.Filled.Storefront, "Mesa" to Icons.Filled.TableRestaurant, "Gestão" to Icons.Outlined.Settings)
-
-    // Verifica se é Admin para mostrar aviso visual
     val isAdminMode = authViewModel.isUserSuperAdmin
 
     ModalNavigationDrawer(
@@ -164,7 +184,6 @@ fun MainAppLayout(
         drawerContent = {
             ModalDrawerSheet {
                 Spacer(Modifier.height(16.dp))
-                // Banner de Topo
                 if (isAdminMode) {
                     Surface(color = Color.Red.copy(alpha = 0.1f), modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -173,6 +192,18 @@ fun MainAppLayout(
                             Column {
                                 Text("MODO ESPIÃO", color = Color.Red, fontWeight = FontWeight.Bold)
                                 Text("Acesso Admin", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                if (isOffline) {
+                    Surface(color = Color(0xFFFFA000), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.WifiOff, null, tint = Color.White)
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text("MODO OFFLINE", color = Color.White, fontWeight = FontWeight.Bold)
+                                Text("Dados locais em uso", style = MaterialTheme.typography.bodySmall, color = Color.White)
                             }
                         }
                     }
@@ -194,8 +225,6 @@ fun MainAppLayout(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-
-                // --- BOTÃO DINÂMICO ---
                 NavigationDrawerItem(
                     icon = {
                         if (isAdminMode) Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.Red)
@@ -209,8 +238,7 @@ fun MainAppLayout(
                     onClick = {
                         scope.launch {
                             drawerState.close()
-                            if (isAdminMode) authViewModel.exitCompanyMode() // VOLTA
-                            else authViewModel.signOut() // SAI
+                            if (isAdminMode) authViewModel.exitCompanyMode() else authViewModel.signOut()
                         }
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -219,18 +247,25 @@ fun MainAppLayout(
             }
         }
     ) {
-        // ... (resto do scaffold igual)
         when (selectedIndex) {
             0 -> MainScreen(managementViewModel, !orderViewModel.isOrderEmpty, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
             1 -> KitchenScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
             2 -> CounterScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
             3 -> TableScreen(kitchenViewModel, { scope.launch { drawerState.open() } }, { navController.navigate("order_summary/$it") })
-            4 -> ManagementHubScreen({ scope.launch { drawerState.open() } }, { navController.navigate("product_management") }, { navController.navigate("manage_categories") }, {}, {})
+            // --- A CORREÇÃO ESTÁ AQUI NA LINHA ABAIXO ---
+            4 -> ManagementHubScreen(
+                managementViewModel, // Passando a instância correta!
+                { scope.launch { drawerState.open() } },
+                { navController.navigate("product_management") },
+                { navController.navigate("manage_categories") },
+                {},
+                {}
+            )
         }
     }
 }
 
-// ... (Mantenha MainScreen e outros componentes como estavam)
+// ... Restante do arquivo (MainScreen, MenuItemCard, etc.) permanece igual ...
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(
@@ -284,7 +319,6 @@ fun MainScreen(
     }
 }
 
-// ... (Componentes Visuais: MenuItemCard, CategoryHeader, CategoryChip, SearchBar - Mantenha os mesmos)
 @Composable
 fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
     val decodedBitmap = remember(item.imageUrl) {
