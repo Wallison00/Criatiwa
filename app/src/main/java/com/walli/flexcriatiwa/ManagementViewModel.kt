@@ -237,4 +237,26 @@ class ManagementViewModel : ViewModel() {
         private set
     fun loadProductForEdit(product: ManagedProduct) { productToEdit = product }
     fun clearEditState() { productToEdit = null }
+
+    // --- LISTA DE PENDENTES PARA O GESTOR ---
+    var pendingUsers by mutableStateOf<List<UserProfile>>(emptyList())
+        private set
+
+    private var pendingUsersListener: ListenerRegistration? = null
+
+    // Adicione esta chamada dentro do updateCompanyContext
+    // loadCompanyDetails(companyId) <-- Já existe
+    // startListeningForPendingUsers(companyId) <-- ADICIONAR ESTA
+
+    private fun startListeningForPendingUsers(companyId: String) {
+        pendingUsersListener?.remove()
+        pendingUsersListener = db.collection("users")
+            .whereEqualTo("companyId", companyId)
+            .whereEqualTo("status", "pending_approval")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null) {
+                    pendingUsers = snapshot.toObjects(UserProfile::class.java)
+                }
+            }
+    }
 }

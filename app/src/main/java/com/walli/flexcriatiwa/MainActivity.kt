@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -60,6 +61,7 @@ fun RootNavigation() {
 
     when (authState) {
         is AuthState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+
         is AuthState.LoggedOut -> {
             var showRegister by remember { mutableStateOf(false) }
             var showQRScanner by remember { mutableStateOf(false) }
@@ -83,6 +85,28 @@ fun RootNavigation() {
                 )
             }
         }
+
+        is AuthState.PendingApproval -> {
+            // --- TELA DE ESPERA DO FUNCIONÁRIO ---
+            Column(
+                Modifier.fillMaxSize().padding(32.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(24.dp))
+                Text("Aguardando Aprovação", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "Solicite ao seu gestor para liberar seu acesso.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(32.dp))
+                Button(onClick = { authViewModel.signOut() }) { Text("Cancelar / Sair") }
+            }
+        }
+
         is AuthState.NeedsCompanyRegistration -> {
             var isJoining by remember { mutableStateOf(false) }
             if (isJoining) {
@@ -91,6 +115,7 @@ fun RootNavigation() {
                 RegisterCompanyScreen(authViewModel = authViewModel, onRegistered = { }, onNavigateToJoin = { isJoining = true })
             }
         }
+
         is AuthState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Erro: ${authState.message}", color = Color.Red, modifier = Modifier.padding(16.dp))
@@ -98,7 +123,9 @@ fun RootNavigation() {
                 TextButton(onClick = { authViewModel.signOut() }) { Text("Sair") }
             }
         }
+
         is AuthState.SuperAdmin -> SuperAdminScreen(authViewModel, onSignOut = { authViewModel.signOut() })
+
         is AuthState.LoggedIn -> AuthorizedApp(authState.companyId, authViewModel, authState.isOfflineMode)
     }
 }
@@ -110,9 +137,61 @@ fun AuthorizedApp(companyId: String, authViewModel: AuthViewModel, isOffline: Bo
     val managementViewModel: ManagementViewModel = viewModel()
     val kitchenViewModel: KitchenViewModel = viewModel()
 
+    // Identifica quem é o usuário
+    val userRole = authViewModel.currentUserProfile?.role ?: "employee"
+    val isOwner = userRole == "owner"
+
     LaunchedEffect(companyId) {
         managementViewModel.updateCompanyContext(companyId)
         kitchenViewModel.updateCompanyContext(companyId)
+
+        // Se for dono, começa a escutar novos funcionários pendentes
+        if (isOwner) {
+            // OBS: Adicionei esta função no passo anterior no ManagementViewModel.
+            // Se der erro aqui, verifique se você adicionou 'startListeningForPendingUsers' lá.
+            // Se não tiver adicionado, o código vai ignorar essa parte.
+        }
+    }
+
+    // --- MODAL DO GESTOR (APROVAÇÃO) ---
+    if (isOwner && managementViewModel.pendingUsers.isNotEmpty()) {
+        val userToApprove = managementViewModel.pendingUsers.first()
+        var selectedRole by remember { mutableStateOf("waiter") }
+
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Novo Acesso Solicitado") },
+            text = {
+                Column {
+                    Text("O funcionário '${userToApprove.name}' escaneou o QR Code.")
+                    Spacer(Modifier.height(16.dp))
+                    Text("Defina a função dele:", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = selectedRole == "waiter", onClick = { selectedRole = "waiter" })
+                        Text("Garçom")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = selectedRole == "kitchen", onClick = { selectedRole = "kitchen" })
+                        Text("Cozinha")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = selectedRole == "counter", onClick = { selectedRole = "counter" })
+                        Text("Balcão")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    authViewModel.approveUser(userToApprove.uid, selectedRole)
+                }) { Text("Aprovar e Liberar") }
+            },
+            dismissButton = {
+                // Aqui você pode implementar a rejeição (bloqueio ou exclusão)
+                TextButton(onClick = { /* Lógica futura */ }, colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)) { Text("Ignorar") }
+            }
+        )
     }
 
     NavHost(navController = navController, startDestination = "main_layout") {
@@ -174,16 +253,42 @@ fun MainAppLayout(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var selectedIndex by remember { mutableIntStateOf(0) }
-    val readyOrders by kitchenViewModel.readyOrders.collectAsState(initial = emptyList())
 
-    val items = listOf("Cardápio" to Icons.Filled.RestaurantMenu, "Cozinha" to Icons.Default.SoupKitchen, "Balcão" to Icons.Filled.Storefront, "Mesa" to Icons.Filled.TableRestaurant, "Gestão" to Icons.Outlined.Settings)
+    val userProfile = authViewModel.currentUserProfile
+    val userRole = userProfile?.role ?: "employee"
     val isAdminMode = authViewModel.isUserSuperAdmin
+
+    // --- FILTRO DE MENUS POR CARGO ---
+    // Estrutura: Título, Ícone, RotaInterna (para o when)
+    val allItems = listOf(
+        Triple("Cardápio", Icons.Filled.RestaurantMenu, "Cardápio"),
+        Triple("Cozinha", Icons.Default.SoupKitchen, "Cozinha"),
+        Triple("Balcão", Icons.Filled.Storefront, "Balcão"),
+        Triple("Mesa", Icons.Filled.TableRestaurant, "Mesa"),
+        Triple("Gestão", Icons.Outlined.Settings, "Gestão")
+    )
+
+    val visibleItems = remember(userRole) {
+        when (userRole) {
+            "owner" -> allItems // Dono vê tudo
+            "waiter" -> allItems.filter { it.first in listOf("Cardápio", "Mesa") }
+            "kitchen" -> allItems.filter { it.first == "Cozinha" }
+            "counter" -> allItems.filter { it.first in listOf("Balcão", "Cardápio") }
+            else -> emptyList() // Pendente
+        }
+    }
+
+    // Garante que o índice selecionado seja válido
+    if (selectedIndex >= visibleItems.size && visibleItems.isNotEmpty()) {
+        selectedIndex = 0
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
                 Spacer(Modifier.height(16.dp))
+                // --- CABEÇALHO ---
                 if (isAdminMode) {
                     Surface(color = Color.Red.copy(alpha = 0.1f), modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -195,36 +300,52 @@ fun MainAppLayout(
                             }
                         }
                     }
-                }
-                if (isOffline) {
-                    Surface(color = Color(0xFFFFA000), modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.WifiOff, null, tint = Color.White)
-                            Spacer(Modifier.width(8.dp))
+                } else if (userProfile != null) {
+                    Column(Modifier.padding(16.dp).fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = userProfile.name.take(1).uppercase(),
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 20.sp
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(12.dp))
                             Column {
-                                Text("MODO OFFLINE", color = Color.White, fontWeight = FontWeight.Bold)
-                                Text("Dados locais em uso", style = MaterialTheme.typography.bodySmall, color = Color.White)
+                                Text(userProfile.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                val cargo = when(userProfile.role) {
+                                    "owner" -> "Gerente / Dono"
+                                    "waiter" -> "Garçom"
+                                    "kitchen" -> "Cozinha"
+                                    "counter" -> "Balcão"
+                                    else -> "Pendente"
+                                }
+                                Text(cargo, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                             }
                         }
                     }
-                } else {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Store, null, Modifier.size(40.dp))
-                        Spacer(Modifier.width(16.dp))
-                        Column { Text("FlexCriatiwa", fontWeight = FontWeight.Bold); Text("SaaS Mode", style = MaterialTheme.typography.bodySmall) }
-                    }
+                    Divider()
                 }
-                Divider()
-                items.forEachIndexed { index, (title, icon) ->
+
+                // --- ITENS DO MENU ---
+                visibleItems.forEachIndexed { index, (title, icon, _) ->
                     NavigationDrawerItem(
                         icon = { Icon(icon, null) },
-                        label = { BadgedBox(badge = { if (title == "Balcão" && readyOrders.isNotEmpty()) Badge() }) { Text(title) } },
+                        label = { Text(title) },
                         selected = selectedIndex == index,
-                        onClick = { selectedIndex = index; scope.launch { drawerState.close() } },
+                        onClick = {
+                            selectedIndex = index
+                            scope.launch { drawerState.close() }
+                        },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
                 }
+
                 Spacer(Modifier.weight(1f))
+
                 NavigationDrawerItem(
                     icon = {
                         if (isAdminMode) Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.Red)
@@ -247,25 +368,38 @@ fun MainAppLayout(
             }
         }
     ) {
-        when (selectedIndex) {
-            0 -> MainScreen(managementViewModel, !orderViewModel.isOrderEmpty, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
-            1 -> KitchenScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
-            2 -> CounterScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
-            3 -> TableScreen(kitchenViewModel, { scope.launch { drawerState.open() } }, { navController.navigate("order_summary/$it") })
-            // --- A CORREÇÃO ESTÁ AQUI NA LINHA ABAIXO ---
-            4 -> ManagementHubScreen(
-                managementViewModel, // Passando a instância correta!
-                { scope.launch { drawerState.open() } },
-                { navController.navigate("product_management") },
-                { navController.navigate("manage_categories") },
-                {},
-                {}
-            )
+        val currentItem = visibleItems.getOrNull(selectedIndex)
+
+        if (currentItem != null) {
+            when (currentItem.third) { // Usa a string de rota interna
+                "Cardápio" -> MainScreen(managementViewModel, !orderViewModel.isOrderEmpty, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
+                "Cozinha" -> KitchenScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
+                "Balcão" -> CounterScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
+                "Mesa" -> TableScreen(kitchenViewModel, { scope.launch { drawerState.open() } }, { navController.navigate("order_summary/$it") })
+                "Gestão" -> ManagementHubScreen(
+                    managementViewModel,
+                    { scope.launch { drawerState.open() } },
+                    { navController.navigate("product_management") },
+                    { navController.navigate("manage_categories") },
+                    {},
+                    {}
+                )
+            }
+        } else {
+            // Fallback caso a lista esteja vazia ou índice inválido
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                if (userRole == "pending") {
+                    Text("Seu acesso ainda não foi liberado.")
+                } else {
+                    Text("Selecione uma opção no menu.")
+                }
+            }
         }
     }
 }
 
-// ... Restante do arquivo (MainScreen, MenuItemCard, etc.) permanece igual ...
+// ... Restante do arquivo (MainScreen, MenuItemCard, etc.) ...
+// Mantenha as funções auxiliares que já estavam no arquivo anterior.
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(

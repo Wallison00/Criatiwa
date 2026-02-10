@@ -7,17 +7,17 @@ data class UserProfile(
     val email: String = "",
     val name: String = "",
     val companyId: String? = null,
-    val role: String = "owner"
+    val role: String = "employee", // Será definido pelo gestor
+    // NOVO: Controla se o usuário pode entrar
+    val status: String = "active" // "active", "pending_approval", "blocked"
 )
 
 data class Company(
     val id: String = "",
     val name: String = "",
     val ownerId: String = "",
-    // NOVO: Email do dono (para contato/identificação)
     val ownerEmail: String = "",
     val createdAt: Timestamp = Timestamp.now(),
-    // NOVO: Data da última modificação
     val updatedAt: Timestamp = Timestamp.now(),
     val status: String = "active",
     val plan: String = "free",

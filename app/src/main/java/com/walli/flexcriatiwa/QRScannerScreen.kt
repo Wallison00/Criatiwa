@@ -99,32 +99,18 @@ fun ScannerContent(authViewModel: AuthViewModel, onNavigateBack: () -> Unit) {
         // DIÁLOGO DE CADASTRO RÁPIDO
         if (showSetupDialog) {
             AlertDialog(
-                onDismissRequest = {
-                    showSetupDialog = false
-                    scannedCode = null // Reinicia scanner se cancelar
-                },
-                title = { Text("Bem-vindo à Equipe!") },
+                onDismissRequest = { showSetupDialog = false; scannedCode = null },
+                title = { Text("Primeiro Acesso") },
                 text = {
                     Column {
-                        Text("Código lido com sucesso.")
+                        Text("Empresa identificada.")
+                        Text("Informe seu nome para o gestor liberar seu acesso.")
                         Spacer(Modifier.height(16.dp))
-
                         OutlinedTextField(
-                            value = employeeName,
-                            onValueChange = { employeeName = it },
-                            label = { Text("Seu Nome") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                            value = employeeName, onValueChange = { employeeName = it },
+                            label = { Text("Seu Nome") }, singleLine = true, modifier = Modifier.fillMaxWidth()
                         )
-
-                        Spacer(Modifier.height(16.dp))
-                        Text("Qual sua função?", style = MaterialTheme.typography.labelMedium)
-                        Spacer(Modifier.height(8.dp))
-
-                        // Seleção de Função
-                        RoleRadioButton("Garçom / Salão", "waiter", selectedRole) { selectedRole = it }
-                        RoleRadioButton("Cozinha", "kitchen", selectedRole) { selectedRole = it }
-                        RoleRadioButton("Balcão / Caixa", "counter", selectedRole) { selectedRole = it }
+                        // REMOVIDO: Seleção de Cargo (RadioButtons)
                     }
                 },
                 confirmButton = {
@@ -132,24 +118,18 @@ fun ScannerContent(authViewModel: AuthViewModel, onNavigateBack: () -> Unit) {
                         onClick = {
                             if (employeeName.isNotBlank() && scannedCode != null) {
                                 isLoading = true
-                                authViewModel.loginWithQRCode(scannedCode!!, employeeName, selectedRole) {
+                                // Passamos uma string vazia no role, pois será ignorada
+                                authViewModel.registerQRCodeUser(scannedCode!!, employeeName, "") {
                                     isLoading = false
-                                    // Sucesso: O AuthState mudará e a MainActivity trocará a tela
+                                    // O AuthViewModel vai mudar o estado para PendingApproval
                                 }
-                            } else {
-                                Toast.makeText(context, "Informe seu nome.", Toast.LENGTH_SHORT).show()
                             }
                         },
                         enabled = !isLoading
-                    ) {
-                        if(isLoading) CircularProgressIndicator(modifier = Modifier.size(24.dp)) else Text("Entrar")
-                    }
+                    ) { Text("Solicitar Acesso") }
                 },
                 dismissButton = {
-                    TextButton(onClick = {
-                        showSetupDialog = false
-                        scannedCode = null
-                    }) { Text("Cancelar") }
+                    TextButton(onClick = { showSetupDialog = false; scannedCode = null }) { Text("Cancelar") }
                 }
             )
         }
