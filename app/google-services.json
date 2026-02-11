@@ -12,7 +12,20 @@
           "package_name": "com.walli.flexcriatiwa"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "952947446280-6oc5k97nld249srfgs4004tm40ek3rkv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.walli.flexcriatiwa",
+            "certificate_hash": "03d424c9a5cb182b9c2fa059fc7d090ffa409bae"
+          }
+        },
+        {
+          "client_id": "952947446280-ps19n64r9a4pc1e892buiasu922kgdvm.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAT9RHpUKAjqWIZAtpCp7ptTabh4drult4"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "952947446280-ps19n64r9a4pc1e892buiasu922kgdvm.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

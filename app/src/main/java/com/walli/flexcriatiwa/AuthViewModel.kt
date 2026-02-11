@@ -7,7 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Firebase
-import com.google.firebase.Timestamp
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.launch
@@ -79,26 +79,13 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun approveUser(userId: String, assignedRole: String) {
-        viewModelScope.launch {
-            try {
-                db.collection("users").document(userId)
-                    .update(mapOf("role" to assignedRole, "status" to "active")).await()
-            } catch (e: Exception) { }
-        }
-    }
-
-    // --- NOVA LÓGICA: LOGIN OU CADASTRO INTELIGENTE ---
-    fun loginOrRegisterEmployee(shareCode: String, name: String, password: String, onResult: (Boolean, String?) -> Unit) {
+    // --- LOGIN COM GOOGLE ---
+    fun loginWithGoogleCredential(shareCode: String, idToken: String, onResult: (Boolean, String?) -> Unit) {
         val cleanCode = shareCode.trim().uppercase()
-        val cleanName = name.trim().replace(" ", "").lowercase() // Remove espaços para o email
-
-        // E-mail gerado automaticamente para consistência
-        val generatedEmail = "$cleanName.$cleanCode@flexcriatiwa.app"
 
         viewModelScope.launch {
             try {
-                // 1. Valida a Empresa
+                // 1. Valida a Empresa pelo código
                 val snapshot = db.collection("companies").whereEqualTo("shareCode", cleanCode).limit(1).get().await()
                 if (snapshot.isEmpty) {
                     onResult(false, "Código da empresa inválido.")
@@ -106,52 +93,55 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val companyId = snapshot.documents.first().id
 
-                // 2. Tenta fazer LOGIN primeiro
-                try {
-                    auth.signInWithEmailAndPassword(generatedEmail, password).await()
-                    // Se passar aqui, o login funcionou! O listener checkAuthStatus fará o resto.
-                    onResult(true, null)
-                    return@launch
-                } catch (e: Exception) {
-                    // Se falhar o login, assumimos que é um cadastro novo (ou senha errada)
-                    // Vamos tentar CADASTRAR
-                }
+                // 2. Autentica no Firebase com Google
+                val credential = GoogleAuthProvider.getCredential(idToken, null)
+                val authResult = auth.signInWithCredential(credential).await()
+                val user = authResult.user ?: throw Exception("Falha na autenticação Google")
 
-                // 3. Tenta CADASTRAR
-                try {
-                    val authResult = auth.createUserWithEmailAndPassword(generatedEmail, password).await()
-                    val user = authResult.user ?: throw Exception("Erro ao criar usuário")
+                // 3. Verifica se o usuário já existe
+                val userDocRef = db.collection("users").document(user.uid)
+                val userDoc = userDocRef.get().await()
 
-                    // Salva o perfil
+                if (userDoc.exists()) {
+                    // Usuário existente
+                    val currentCompany = userDoc.getString("companyId")
+
+                    if (currentCompany != companyId) {
+                        // Se mudou de empresa, atualiza e reseta para pendente
+                        userDocRef.update(mapOf(
+                            "companyId" to companyId,
+                            "role" to "pending",
+                            "status" to "pending_approval"
+                        )).await()
+                    }
+                    // Se for a mesma empresa, mantém o status atual (ativo/pendente)
+                } else {
+                    // Novo usuário: Cria como pendente
                     val userProfile = UserProfile(
                         uid = user.uid,
-                        email = generatedEmail,
-                        name = name,
+                        email = user.email ?: "",
+                        name = user.displayName ?: "Funcionário Google",
                         companyId = companyId,
                         role = "pending",
                         status = "pending_approval"
                     )
-                    db.collection("users").document(user.uid).set(userProfile).await()
-
-                    // Salva sessão local
-                    offlineManager.saveSession(generatedEmail, companyId, "pending", "pending_approval", null)
-
-                    startListeningToMyProfile(user.uid)
-                    onResult(true, null)
-
-                } catch (e: Exception) {
-                    // Se der erro no cadastro também (ex: senha fraca, ou email já existe e senha estava errada antes)
-                    onResult(false, "Erro: Senha incorreta ou usuário já existe. (${e.message})")
+                    userDocRef.set(userProfile).await()
                 }
 
+                offlineManager.saveSession(user.email ?: "", companyId, "pending", "pending_approval", null)
+                startListeningToMyProfile(user.uid)
+                onResult(true, null)
+
             } catch (e: Exception) {
-                onResult(false, "Erro de conexão: ${e.message}")
+                onResult(false, "Erro: ${e.message}")
             }
         }
     }
 
-    // --- MÉTODOS MANTIDOS (Register Company, etc) ---
-
+    // --- MÉTODOS MANTIDOS ---
+    fun approveUser(userId: String, assignedRole: String) {
+        viewModelScope.launch { try { db.collection("users").document(userId).update(mapOf("role" to assignedRole, "status" to "active")).await() } catch (e: Exception) { } }
+    }
     fun registerCompany(companyName: String, onSuccess: () -> Unit) {
         val user = auth.currentUser ?: return
         viewModelScope.launch {
@@ -160,10 +150,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 val uniqueCode = (1..6).map { ('A'..'Z').random() }.joinToString("")
                 val company = Company(id = newCompanyRef.id, name = companyName, ownerId = user.uid, ownerEmail = user.email ?: "", shareCode = uniqueCode)
                 newCompanyRef.set(company).await()
-
                 val userProfile = UserProfile(uid = user.uid, email = user.email ?: "", name = user.displayName ?: "Dono", companyId = company.id, role = "owner", status = "active")
                 db.collection("users").document(user.uid).set(userProfile).await()
-
                 currentUserProfile = userProfile
                 createDefaultMenuStructure(company.id)
                 offlineManager.saveSession(user.email ?: "", company.id, "owner", "active", null)
@@ -172,30 +160,16 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) { authState = AuthState.Error("Erro: ${e.message}") }
         }
     }
-
-    fun joinCompanyWithCode(code: String, onSuccess: () -> Unit) {
-        // ... (Mantido para compatibilidade, mas o fluxo principal agora é o de cima)
-    }
-
-    // Mantemos o método antigo vazio ou redirecionando se necessário, mas removemos a lógica anônima pura.
-    fun checkQRCodeUserStatus(scannedCode: String, onNewUser: () -> Unit, onExistingUser: () -> Unit) {
-        // No novo fluxo, sempre abrimos o modal para pedir senha, então não verificamos antes.
-        // Podemos deixar essa função apenas chamando onNewUser para compatibilidade
-        onNewUser()
-    }
-
-    // Compatibilidade
-    fun registerQRCodeUser(scannedCode: String, userName: String, role: String, onSuccess: () -> Unit) {
-        // Não usado mais diretamente
-    }
-
+    fun signOut() { auth.signOut(); authState = AuthState.LoggedOut; currentUserProfile = null }
     private suspend fun createDefaultMenuStructure(companyId: String) {
         val defaultCategories = listOf(mapOf("name" to "Lanches", "defaultIngredients" to listOf("Pão", "Carne"), "availableOptionals" to emptyList<Any>()))
         db.collection("companies").document(companyId).collection("settings").document("menu_structure").set(mapOf("categories" to defaultCategories)).await()
     }
-
-    fun enterCompanyMode(companyId: String) { if (isUserSuperAdmin) authState = AuthState.LoggedIn(companyId, "admin_viewer") }
-    fun exitCompanyMode() { if (isUserSuperAdmin) authState = AuthState.SuperAdmin }
-    fun signOut() { auth.signOut(); authState = AuthState.LoggedOut; currentUserProfile = null }
-    fun forceOfflineLogin(email: String) { /* Mantido */ }
+    fun enterCompanyMode(companyId: String) { if(isUserSuperAdmin) authState = AuthState.LoggedIn(companyId, "admin_viewer") }
+    fun exitCompanyMode() { if(isUserSuperAdmin) authState = AuthState.SuperAdmin }
+    fun joinCompanyWithCode(code: String, onSuccess: () -> Unit) {} // Não usado no fluxo QR
+    fun forceOfflineLogin(email: String) {}
+    // Compatibilidade
+    fun checkQRCodeUserStatus(code: String, onNew: () -> Unit, onOld: () -> Unit) { onNew() }
+    fun registerQRCodeUser(code: String, name: String, role: String, success: () -> Unit) {}
 }

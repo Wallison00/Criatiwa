@@ -51,6 +51,9 @@ dependencies {
     implementation("com.google.firebase:firebase-auth")
     implementation(libs.firebase.firestore)
 
+    // --- ADICIONE ESTA LINHA ---
+    implementation("com.google.android.gms:play-services-auth:20.7.0")
+
     // Outras libs
     implementation(libs.coil.compose)
     implementation(libs.androidx.compose.material.icons.extended)
