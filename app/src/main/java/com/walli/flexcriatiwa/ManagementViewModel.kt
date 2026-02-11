@@ -27,6 +27,9 @@ class ManagementViewModel : ViewModel() {
     private var productsListener: ListenerRegistration? = null
     private var settingsListener: ListenerRegistration? = null
 
+    // Listener específico para a lista de espera
+    private var pendingUsersListener: ListenerRegistration? = null
+
     // --- ESTADOS ---
     var products by mutableStateOf<List<ManagedProduct>>(emptyList())
         private set
@@ -36,26 +39,49 @@ class ManagementViewModel : ViewModel() {
 
     var categoryConfigs by mutableStateOf<List<CategoryConfig>>(emptyList())
 
-    // Dados da Empresa
     var currentCompany by mutableStateOf<Company?>(null)
         private set
 
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
+    // LISTA DE PENDENTES (O que faz o modal aparecer)
+    var pendingUsers by mutableStateOf<List<UserProfile>>(emptyList())
+        private set
+
     // --- INICIALIZAÇÃO ---
     fun updateCompanyContext(companyId: String) {
         currentCompanyId = companyId
 
+        // Limpa listeners antigos para não duplicar
         productsListener?.remove()
         settingsListener?.remove()
+        pendingUsersListener?.remove()
 
+        // Inicia as escutas
         startListeningProducts(companyId)
         startListeningSettings(companyId)
+
+        // --- AQUI ESTAVA FALTANDO: ---
+        startListeningForPendingUsers(companyId)
+
         loadCompanyDetails(companyId)
     }
 
-    // --- BUSCA DADOS DA EMPRESA (COM AUTO-CORREÇÃO DE CÓDIGO) ---
+    // --- FUNÇÃO QUE BUSCA OS PENDENTES ---
+    private fun startListeningForPendingUsers(companyId: String) {
+        pendingUsersListener = db.collection("users")
+            .whereEqualTo("companyId", companyId)
+            .whereEqualTo("status", "pending_approval")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null) {
+                    // Atualiza a lista automaticamente quando alguém entra ou é aprovado
+                    pendingUsers = snapshot.toObjects(UserProfile::class.java)
+                }
+            }
+    }
+
+    // --- BUSCA DADOS DA EMPRESA ---
     private fun loadCompanyDetails(companyId: String) {
         viewModelScope.launch {
             errorMessage = null
@@ -63,22 +89,12 @@ class ManagementViewModel : ViewModel() {
                 val doc = db.collection("companies").document(companyId).get().await()
                 if (doc.exists()) {
                     var company = doc.toObject(Company::class.java)
-
                     if (company != null) {
-                        // --- A MÁGICA ACONTECE AQUI ---
-                        // Se a empresa não tiver código (antiga), geramos um agora e salvamos!
                         if (company.shareCode.isBlank()) {
                             val newCode = (1..6).map { ('A'..'Z').random() }.joinToString("")
-
-                            // Atualiza no Banco
-                            db.collection("companies").document(companyId)
-                                .update("shareCode", newCode)
-                                .await()
-
-                            // Atualiza na Memória para a tela ver
+                            db.collection("companies").document(companyId).update("shareCode", newCode).await()
                             company = company.copy(shareCode = newCode)
                         }
-
                         currentCompany = company
                     } else {
                         errorMessage = "Erro: Dados corrompidos."
@@ -88,7 +104,6 @@ class ManagementViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 errorMessage = "Falha ao carregar: ${e.message}"
-                Log.e("MngVM", "Erro loadCompanyDetails", e)
             }
         }
     }
@@ -237,26 +252,4 @@ class ManagementViewModel : ViewModel() {
         private set
     fun loadProductForEdit(product: ManagedProduct) { productToEdit = product }
     fun clearEditState() { productToEdit = null }
-
-    // --- LISTA DE PENDENTES PARA O GESTOR ---
-    var pendingUsers by mutableStateOf<List<UserProfile>>(emptyList())
-        private set
-
-    private var pendingUsersListener: ListenerRegistration? = null
-
-    // Adicione esta chamada dentro do updateCompanyContext
-    // loadCompanyDetails(companyId) <-- Já existe
-    // startListeningForPendingUsers(companyId) <-- ADICIONAR ESTA
-
-    private fun startListeningForPendingUsers(companyId: String) {
-        pendingUsersListener?.remove()
-        pendingUsersListener = db.collection("users")
-            .whereEqualTo("companyId", companyId)
-            .whereEqualTo("status", "pending_approval")
-            .addSnapshotListener { snapshot, _ ->
-                if (snapshot != null) {
-                    pendingUsers = snapshot.toObjects(UserProfile::class.java)
-                }
-            }
-    }
 }
