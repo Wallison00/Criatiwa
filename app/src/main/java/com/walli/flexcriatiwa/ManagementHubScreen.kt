@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -21,22 +22,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-// Removemos o import de viewModel() pois não vamos mais criar um aqui dentro
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManagementHubScreen(
-    managementViewModel: ManagementViewModel, // <--- RECEBEMOS O VIEWMODEL CARREGADO
+    managementViewModel: ManagementViewModel,
     onOpenDrawer: () -> Unit,
     onNavigateToProducts: () -> Unit,
     onNavigateToCategories: () -> Unit,
     onNavigateToIngredients: () -> Unit,
     onNavigateToOptionals: () -> Unit
 ) {
-    // Removemos a linha: val managementViewModel: ManagementViewModel = viewModel()
-
     val company = managementViewModel.currentCompany
     val errorMessage = managementViewModel.errorMessage
+    val activeUsers = managementViewModel.activeUsers // <--- LISTA DE EQUIPE
 
     val qrBitmap = remember(company?.shareCode) {
         if (!company?.shareCode.isNullOrBlank()) {
@@ -60,7 +59,7 @@ fun ManagementHubScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(24.dp) // Mais espaço entre seções
         ) {
             // --- CARTÃO DE ACESSO ---
             if (company != null) {
@@ -90,28 +89,93 @@ fun ManagementHubScreen(
                     }
                 }
             } else if (errorMessage != null) {
+                // ... (Erro) ...
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Error, null, tint = MaterialTheme.colorScheme.error)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Erro", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-                        }
+                        Text("Erro", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
                         Text(errorMessage, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             } else {
-                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text("Carregando perfil da empresa...", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall)
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+
+            // --- LISTA DE EQUIPE (NOVO BLOCO) ---
+            if (activeUsers.isNotEmpty()) {
+                Column {
+                    Text("Equipe (${activeUsers.size})", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+
+                    activeUsers.forEach { user ->
+                        EmployeeCard(user)
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+            } else if (company != null) {
+                Text("Nenhum funcionário ativo ainda.", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            }
+
+            // --- MENU DE CADASTROS ---
+            Column {
+                Text("Cadastros", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ManagementCard(title = "Produtos", icon = Icons.Default.Fastfood, color = Color(0xFF4CAF50), modifier = Modifier.weight(1f), onClick = onNavigateToProducts)
+                    ManagementCard(title = "Estrutura", icon = Icons.Default.Category, color = Color(0xFF2196F3), modifier = Modifier.weight(1f), onClick = onNavigateToCategories)
+                }
+            }
+        }
+    }
+}
+
+// --- CARD DE FUNCIONÁRIO ---
+@Composable
+fun EmployeeCard(user: UserProfile) {
+    Card(
+        elevation = CardDefaults.cardElevation(2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Ícone com a inicial
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = user.name.take(1).uppercase(),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
                 }
             }
 
-            Text("Cadastros", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(12.dp))
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                ManagementCard(title = "Produtos", icon = Icons.Default.Fastfood, color = Color(0xFF4CAF50), modifier = Modifier.weight(1f), onClick = onNavigateToProducts)
-                ManagementCard(title = "Estrutura", icon = Icons.Default.Category, color = Color(0xFF2196F3), modifier = Modifier.weight(1f), onClick = onNavigateToCategories)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(user.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+
+                // Tradução do Cargo
+                val cargo = when(user.role) {
+                    "owner" -> "Dono / Gerente"
+                    "waiter" -> "Garçom"
+                    "kitchen" -> "Cozinha"
+                    "counter" -> "Balcão"
+                    else -> "Funcionário"
+                }
+
+                Text(cargo, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            }
+
+            // Ícone indicando status ativo
+            if (user.role == "owner") {
+                Icon(Icons.Default.Star, null, tint = Color(0xFFFFD700)) // Estrela para o dono
+            } else {
+                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF4CAF50))
             }
         }
     }

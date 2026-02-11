@@ -26,9 +26,10 @@ class ManagementViewModel : ViewModel() {
     private var currentCompanyId: String? = null
     private var productsListener: ListenerRegistration? = null
     private var settingsListener: ListenerRegistration? = null
-
-    // Listener específico para a lista de espera
     private var pendingUsersListener: ListenerRegistration? = null
+
+    // NOVO: Listener para usuários ativos
+    private var activeUsersListener: ListenerRegistration? = null
 
     // --- ESTADOS ---
     var products by mutableStateOf<List<ManagedProduct>>(emptyList())
@@ -45,43 +46,57 @@ class ManagementViewModel : ViewModel() {
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
-    // LISTA DE PENDENTES (O que faz o modal aparecer)
+    // Lista de Pendentes (Para aprovação)
     var pendingUsers by mutableStateOf<List<UserProfile>>(emptyList())
+        private set
+
+    // NOVO: Lista de Ativos (Para visualização da equipe)
+    var activeUsers by mutableStateOf<List<UserProfile>>(emptyList())
         private set
 
     // --- INICIALIZAÇÃO ---
     fun updateCompanyContext(companyId: String) {
         currentCompanyId = companyId
 
-        // Limpa listeners antigos para não duplicar
         productsListener?.remove()
         settingsListener?.remove()
         pendingUsersListener?.remove()
+        activeUsersListener?.remove() // Limpa o novo listener
 
-        // Inicia as escutas
         startListeningProducts(companyId)
         startListeningSettings(companyId)
-
-        // --- AQUI ESTAVA FALTANDO: ---
         startListeningForPendingUsers(companyId)
-
+        startListeningForActiveUsers(companyId) // Inicia a nova escuta
         loadCompanyDetails(companyId)
     }
 
-    // --- FUNÇÃO QUE BUSCA OS PENDENTES ---
+    // --- BUSCA PENDENTES ---
     private fun startListeningForPendingUsers(companyId: String) {
         pendingUsersListener = db.collection("users")
             .whereEqualTo("companyId", companyId)
             .whereEqualTo("status", "pending_approval")
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot != null) {
-                    // Atualiza a lista automaticamente quando alguém entra ou é aprovado
                     pendingUsers = snapshot.toObjects(UserProfile::class.java)
                 }
             }
     }
 
-    // --- BUSCA DADOS DA EMPRESA ---
+    // --- NOVO: BUSCA ATIVOS (A EQUIPE) ---
+    private fun startListeningForActiveUsers(companyId: String) {
+        activeUsersListener = db.collection("users")
+            .whereEqualTo("companyId", companyId)
+            .whereEqualTo("status", "active")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null) {
+                    activeUsers = snapshot.toObjects(UserProfile::class.java)
+                        // Opcional: Ordenar por nome
+                        .sortedBy { it.name }
+                }
+            }
+    }
+
+    // --- DADOS DA EMPRESA ---
     private fun loadCompanyDetails(companyId: String) {
         viewModelScope.launch {
             errorMessage = null
@@ -96,19 +111,13 @@ class ManagementViewModel : ViewModel() {
                             company = company.copy(shareCode = newCode)
                         }
                         currentCompany = company
-                    } else {
-                        errorMessage = "Erro: Dados corrompidos."
                     }
-                } else {
-                    errorMessage = "Erro: Empresa não encontrada."
                 }
-            } catch (e: Exception) {
-                errorMessage = "Falha ao carregar: ${e.message}"
-            }
+            } catch (e: Exception) { errorMessage = "Erro: ${e.message}" }
         }
     }
 
-    // --- ESCUTAS EM TEMPO REAL ---
+    // --- PRODUTOS ---
     private fun startListeningProducts(companyId: String) {
         productsListener = db.collection("companies").document(companyId).collection("products")
             .addSnapshotListener { snapshot, e ->
@@ -137,6 +146,7 @@ class ManagementViewModel : ViewModel() {
             }
     }
 
+    // --- CONFIGURAÇÕES ---
     private fun startListeningSettings(companyId: String) {
         settingsListener = db.collection("companies").document(companyId)
             .collection("settings").document("menu_structure")
@@ -168,7 +178,7 @@ class ManagementViewModel : ViewModel() {
         saveCategoriesToFirebase()
     }
 
-    // --- FUNÇÕES DE CATEGORIA ---
+    // --- FUNÇÕES CRUD (Mantidas) ---
     fun addCategory(name: String) {
         if (categoryConfigs.none { it.name.equals(name, ignoreCase = true) }) {
             categoryConfigs = categoryConfigs + CategoryConfig(name)
@@ -210,7 +220,6 @@ class ManagementViewModel : ViewModel() {
         db.collection("companies").document(companyId).collection("settings").document("menu_structure").set(dataToSave)
     }
 
-    // --- FUNÇÕES DE PRODUTO ---
     fun saveProductWithImage(context: Context, product: ManagedProduct, newImageUri: Uri?, onSuccess: () -> Unit) {
         val companyId = currentCompanyId ?: return
         viewModelScope.launch(Dispatchers.IO) {
