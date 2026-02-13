@@ -240,7 +240,18 @@ class ManagementViewModel : ViewModel() {
     private fun compressUriToBase64(context: Context, uri: Uri): String { return try { val inputStream = context.contentResolver.openInputStream(uri); val bitmap = BitmapFactory.decodeStream(inputStream); val outputStream = ByteArrayOutputStream(); bitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream); "data:image/jpeg;base64," + Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP) } catch (e: Exception) { "" } }
     fun deleteProduct(product: ManagedProduct) { val companyId = currentCompanyId ?: return; if (product.id.isNotBlank()) db.collection("companies").document(companyId).collection("products").document(product.id).delete() }
 
-    val productsByCategory: List<MenuCategory> get() = products.filter { it.isActive }.groupBy { it.category }.map { (cat, items) -> MenuCategory(cat, items.map { MenuItem(it.id, it.code, it.name, it.price, it.imageUrl) }) }
+    // --- CORREÇÃO AQUI: Ordenação por Código ---
+    val productsByCategory: List<MenuCategory>
+        get() = products.filter { it.isActive }
+            .groupBy { it.category }
+            .map { (cat, items) ->
+                MenuCategory(
+                    cat,
+                    items.sortedBy { it.code } // Ordena itens pelo código (menor -> maior)
+                        .map { MenuItem(it.id, it.code, it.name, it.price, it.imageUrl) }
+                )
+            }
+
     var productToEdit by mutableStateOf<ManagedProduct?>(null); private set
     fun loadProductForEdit(product: ManagedProduct) { productToEdit = product }; fun clearEditState() { productToEdit = null }
 }

@@ -34,8 +34,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow // <--- IMPORTAÇÃO NOVA
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -47,7 +49,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Instancia ViewModels globais
         val authViewModel: AuthViewModel by viewModels()
         val orderViewModel: OrderViewModel by viewModels()
         val kitchenViewModel: KitchenViewModel by viewModels()
@@ -55,7 +56,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             FlexCriatiwaTheme {
-                // Passa os ViewModels para a navegação
                 RootNavigation(authViewModel, orderViewModel, kitchenViewModel, managementViewModel)
             }
         }
@@ -106,7 +106,7 @@ fun RootNavigation(
                 Spacer(Modifier.height(16.dp))
                 Text("Solicite ao seu gestor para liberar seu acesso.", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(32.dp))
-                Button(onClick = { authViewModel.signOut() }) { Text("Sair") }
+                Button(onClick = { authViewModel.signOut() }) { Text("Cancelar / Sair") }
             }
         }
 
@@ -127,16 +127,9 @@ fun RootNavigation(
             }
         }
 
-        is AuthState.SuperAdmin -> SuperAdminScreen(authViewModel = authViewModel, onSignOut = { authViewModel.signOut() })
+        is AuthState.SuperAdmin -> SuperAdminScreen(authViewModel, onSignOut = { authViewModel.signOut() })
 
-        is AuthState.LoggedIn -> AuthorizedApp(
-            authState.companyId,
-            authViewModel,
-            orderViewModel,
-            kitchenViewModel,
-            managementViewModel,
-            authState.isOfflineMode
-        )
+        is AuthState.LoggedIn -> AuthorizedApp(authState.companyId, authViewModel, orderViewModel, kitchenViewModel, managementViewModel, authState.isOfflineMode)
     }
 }
 
@@ -158,7 +151,6 @@ fun AuthorizedApp(
         kitchenViewModel.updateCompanyContext(companyId)
     }
 
-    // Modal de Aprovação (Gestor)
     if (isOwner && managementViewModel.pendingUsers.isNotEmpty()) {
         val userToApprove = managementViewModel.pendingUsers.first()
         var selectedRole by remember { mutableStateOf("waiter") }
@@ -177,7 +169,7 @@ fun AuthorizedApp(
                 }
             },
             confirmButton = { Button(onClick = { authViewModel.approveUser(userToApprove.uid, selectedRole) }) { Text("Aprovar") } },
-            dismissButton = { TextButton(onClick = { /* Ignorar por enquanto */ }, colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)) { Text("Ignorar") } }
+            dismissButton = { TextButton(onClick = { }, colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)) { Text("Ignorar") } }
         )
     }
 
@@ -185,23 +177,16 @@ fun AuthorizedApp(
         composable("main_layout") {
             MainAppLayout(managementViewModel, orderViewModel, kitchenViewModel, authViewModel, navController, isOffline)
         }
-
-        // --- ROTAS DE GESTÃO ---
         composable("product_management") {
             ProductManagementScreen(managementViewModel, { navController.popBackStack() }, { managementViewModel.clearEditState(); navController.navigate("add_edit_product") }, { managementViewModel.loadProductForEdit(it); navController.navigate("add_edit_product") })
         }
         composable("add_edit_product") { AddEditProductScreen(managementViewModel, { navController.popBackStack() }) }
+        composable("manage_categories") { CategoryManagementScreen(managementViewModel, { navController.popBackStack() }) }
 
-        composable("manage_categories") {
-            CategoryManagementScreen(managementViewModel, onNavigateBack = { navController.popBackStack() })
-        }
-
-        // --- NOVA ROTA DE FUNCIONÁRIOS ---
         composable("employee_management") {
             EmployeeManagementScreen(managementViewModel, onNavigateBack = { navController.popBackStack() })
         }
 
-        // --- ROTAS DE DETALHES E PEDIDOS ---
         composable("detail/{itemId}") { backStackEntry ->
             val itemId = backStackEntry.arguments?.getString("itemId")
             val product = managementViewModel.products.find { it.id == itemId }
@@ -251,7 +236,9 @@ fun MainAppLayout(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var selectedIndex by remember { mutableIntStateOf(0) }
-    val userRole = authViewModel.currentUserProfile?.role ?: "employee"
+
+    val userProfile = authViewModel.currentUserProfile
+    val userRole = userProfile?.role ?: "employee"
     val isAdminMode = authViewModel.isUserSuperAdmin
 
     val allItems = listOf(
@@ -279,14 +266,70 @@ fun MainAppLayout(
         drawerContent = {
             ModalDrawerSheet {
                 Spacer(Modifier.height(16.dp))
+
+                // --- CABEÇALHO DO MENU ---
                 if (isAdminMode) {
-                    Text("MODO ESPIÃO", color = Color.Red, modifier = Modifier.padding(16.dp))
-                } else {
-                    Text(authViewModel.currentUserProfile?.name ?: "Usuário", modifier = Modifier.padding(16.dp), fontWeight = FontWeight.Bold)
+                    Surface(color = Color.Red.copy(alpha = 0.1f), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Visibility, null, tint = Color.Red)
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text("MODO ESPIÃO", color = Color.Red, fontWeight = FontWeight.Bold)
+                                Text("Acesso Admin", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                } else if (userProfile != null) {
+                    Column(Modifier.padding(16.dp).fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = userProfile.name.take(1).uppercase(),
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 20.sp
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    userProfile.name,
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                val cargo = when(userProfile.role) {
+                                    "owner" -> "Gerente / Dono"
+                                    "waiter" -> "Garçom"
+                                    "kitchen" -> "Cozinha"
+                                    "counter" -> "Balcão"
+                                    else -> "Pendente"
+                                }
+                                Text(
+                                    cargo,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
+                    Divider()
                 }
-                Divider()
+                // -------------------------
+
                 visibleItems.forEachIndexed { index, (title, icon, _) ->
-                    NavigationDrawerItem(icon = { Icon(icon, null) }, label = { Text(title) }, selected = selectedIndex == index, onClick = { selectedIndex = index; scope.launch { drawerState.close() } }, modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding))
+                    NavigationDrawerItem(
+                        icon = { Icon(icon, null) },
+                        label = { Text(title) },
+                        selected = selectedIndex == index,
+                        onClick = { selectedIndex = index; scope.launch { drawerState.close() } },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
                 }
                 Spacer(Modifier.weight(1f))
                 NavigationDrawerItem(icon = { Icon(Icons.Outlined.ExitToApp, null) }, label = { Text("Sair") }, selected = false, onClick = { scope.launch { drawerState.close(); if(isAdminMode) authViewModel.exitCompanyMode() else authViewModel.signOut() } }, modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding))
@@ -295,6 +338,7 @@ fun MainAppLayout(
         }
     ) {
         val currentItem = visibleItems.getOrNull(selectedIndex)
+
         if (currentItem != null) {
             when (currentItem.third) {
                 "Cardápio" -> MainScreen(managementViewModel, !orderViewModel.isOrderEmpty, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
@@ -306,14 +350,15 @@ fun MainAppLayout(
                     { scope.launch { drawerState.open() } },
                     { navController.navigate("product_management") },
                     { navController.navigate("manage_categories") },
-                    { navController.navigate("employee_management") } // <--- ROTA CORRIGIDA
+                    { navController.navigate("employee_management") }
                 )
             }
-        } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Selecione uma opção.") }
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Selecione uma opção.") }
+        }
     }
 }
 
-// ... (Mantenha MainScreen, MenuItemCard, etc. que já existem no arquivo) ...
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(
@@ -356,7 +401,14 @@ fun MainScreen(
                     categories.forEach { category ->
                         stickyHeader { CategoryHeader(category.name) }
                         item {
-                            LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 150.dp), contentPadding = PaddingValues(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.heightIn(max = 2000.dp)) {
+                            // Grid adaptativo com tamanho mínimo calibrado para 3 colunas em celular
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = 100.dp),
+                                contentPadding = PaddingValues(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.heightIn(max = 2000.dp)
+                            ) {
                                 items(category.items) { MenuItemCard(item = it, onClick = { onNavigateToItemDetail(it.id) }) }
                             }
                         }
@@ -381,7 +433,7 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
     }
 
     Column(
-        modifier = Modifier.width(160.dp).clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Card(
@@ -411,16 +463,28 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
                             .align(Alignment.BottomEnd)
                             .padding(8.dp)
                             .background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        fontSize = 12.sp,
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
         }
         Column {
-            Text(item.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text("R$ %.2f".format(item.price), style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            // --- NOME DO ITEM COM ALTURA PADRÃO ---
+            Text(
+                text = item.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2, // Limite de 2 linhas
+                minLines = 2, // Garante que ocupe sempre o espaço de 2 linhas (padrão)
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "R$ %.2f".format(item.price),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
         }
     }
 }
