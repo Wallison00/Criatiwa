@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -35,7 +36,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -46,17 +46,29 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Instancia ViewModels globais
+        val authViewModel: AuthViewModel by viewModels()
+        val orderViewModel: OrderViewModel by viewModels()
+        val kitchenViewModel: KitchenViewModel by viewModels()
+        val managementViewModel: ManagementViewModel by viewModels()
+
         setContent {
             FlexCriatiwaTheme {
-                RootNavigation()
+                // Passa os ViewModels para a navegação
+                RootNavigation(authViewModel, orderViewModel, kitchenViewModel, managementViewModel)
             }
         }
     }
 }
 
 @Composable
-fun RootNavigation() {
-    val authViewModel: AuthViewModel = viewModel()
+fun RootNavigation(
+    authViewModel: AuthViewModel,
+    orderViewModel: OrderViewModel,
+    kitchenViewModel: KitchenViewModel,
+    managementViewModel: ManagementViewModel
+) {
     val authState = authViewModel.authState
 
     when (authState) {
@@ -87,23 +99,14 @@ fun RootNavigation() {
         }
 
         is AuthState.PendingApproval -> {
-            // --- TELA DE ESPERA DO FUNCIONÁRIO ---
-            Column(
-                Modifier.fillMaxSize().padding(32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(24.dp))
                 Text("Aguardando Aprovação", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(16.dp))
-                Text(
-                    "Solicite ao seu gestor para liberar seu acesso.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center
-                )
+                Text("Solicite ao seu gestor para liberar seu acesso.", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(32.dp))
-                Button(onClick = { authViewModel.signOut() }) { Text("Cancelar / Sair") }
+                Button(onClick = { authViewModel.signOut() }) { Text("Sair") }
             }
         }
 
@@ -124,36 +127,38 @@ fun RootNavigation() {
             }
         }
 
-        is AuthState.SuperAdmin -> SuperAdminScreen(authViewModel, onSignOut = { authViewModel.signOut() })
+        is AuthState.SuperAdmin -> SuperAdminScreen(authViewModel = authViewModel, onSignOut = { authViewModel.signOut() })
 
-        is AuthState.LoggedIn -> AuthorizedApp(authState.companyId, authViewModel, authState.isOfflineMode)
+        is AuthState.LoggedIn -> AuthorizedApp(
+            authState.companyId,
+            authViewModel,
+            orderViewModel,
+            kitchenViewModel,
+            managementViewModel,
+            authState.isOfflineMode
+        )
     }
 }
 
 @Composable
-fun AuthorizedApp(companyId: String, authViewModel: AuthViewModel, isOffline: Boolean) {
+fun AuthorizedApp(
+    companyId: String,
+    authViewModel: AuthViewModel,
+    orderViewModel: OrderViewModel,
+    kitchenViewModel: KitchenViewModel,
+    managementViewModel: ManagementViewModel,
+    isOffline: Boolean
+) {
     val navController = rememberNavController()
-    val orderViewModel: OrderViewModel = viewModel()
-    val managementViewModel: ManagementViewModel = viewModel()
-    val kitchenViewModel: KitchenViewModel = viewModel()
-
-    // Identifica quem é o usuário
     val userRole = authViewModel.currentUserProfile?.role ?: "employee"
     val isOwner = userRole == "owner"
 
     LaunchedEffect(companyId) {
         managementViewModel.updateCompanyContext(companyId)
         kitchenViewModel.updateCompanyContext(companyId)
-
-        // Se for dono, começa a escutar novos funcionários pendentes
-        if (isOwner) {
-            // OBS: Adicionei esta função no passo anterior no ManagementViewModel.
-            // Se der erro aqui, verifique se você adicionou 'startListeningForPendingUsers' lá.
-            // Se não tiver adicionado, o código vai ignorar essa parte.
-        }
     }
 
-    // --- MODAL DO GESTOR (APROVAÇÃO) ---
+    // Modal de Aprovação (Gestor)
     if (isOwner && managementViewModel.pendingUsers.isNotEmpty()) {
         val userToApprove = managementViewModel.pendingUsers.first()
         var selectedRole by remember { mutableStateOf("waiter") }
@@ -163,34 +168,16 @@ fun AuthorizedApp(companyId: String, authViewModel: AuthViewModel, isOffline: Bo
             title = { Text("Novo Acesso Solicitado") },
             text = {
                 Column {
-                    Text("O funcionário '${userToApprove.name}' escaneou o QR Code.")
+                    Text("O funcionário '${userToApprove.name}' solicitou acesso.")
                     Spacer(Modifier.height(16.dp))
-                    Text("Defina a função dele:", fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(8.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = selectedRole == "waiter", onClick = { selectedRole = "waiter" })
-                        Text("Garçom")
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = selectedRole == "kitchen", onClick = { selectedRole = "kitchen" })
-                        Text("Cozinha")
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = selectedRole == "counter", onClick = { selectedRole = "counter" })
-                        Text("Balcão")
-                    }
+                    Text("Defina a função:", fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selectedRole == "waiter", { selectedRole = "waiter" }); Text("Garçom") }
+                    Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selectedRole == "kitchen", { selectedRole = "kitchen" }); Text("Cozinha") }
+                    Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selectedRole == "counter", { selectedRole = "counter" }); Text("Balcão") }
                 }
             },
-            confirmButton = {
-                Button(onClick = {
-                    authViewModel.approveUser(userToApprove.uid, selectedRole)
-                }) { Text("Aprovar e Liberar") }
-            },
-            dismissButton = {
-                // Aqui você pode implementar a rejeição (bloqueio ou exclusão)
-                TextButton(onClick = { /* Lógica futura */ }, colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)) { Text("Ignorar") }
-            }
+            confirmButton = { Button(onClick = { authViewModel.approveUser(userToApprove.uid, selectedRole) }) { Text("Aprovar") } },
+            dismissButton = { TextButton(onClick = { /* Ignorar por enquanto */ }, colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)) { Text("Ignorar") } }
         )
     }
 
@@ -198,12 +185,23 @@ fun AuthorizedApp(companyId: String, authViewModel: AuthViewModel, isOffline: Bo
         composable("main_layout") {
             MainAppLayout(managementViewModel, orderViewModel, kitchenViewModel, authViewModel, navController, isOffline)
         }
+
+        // --- ROTAS DE GESTÃO ---
         composable("product_management") {
             ProductManagementScreen(managementViewModel, { navController.popBackStack() }, { managementViewModel.clearEditState(); navController.navigate("add_edit_product") }, { managementViewModel.loadProductForEdit(it); navController.navigate("add_edit_product") })
         }
         composable("add_edit_product") { AddEditProductScreen(managementViewModel, { navController.popBackStack() }) }
-        composable("manage_categories") { CategoryManagementScreen(managementViewModel, { navController.popBackStack() }) }
 
+        composable("manage_categories") {
+            CategoryManagementScreen(managementViewModel, onNavigateBack = { navController.popBackStack() })
+        }
+
+        // --- NOVA ROTA DE FUNCIONÁRIOS ---
+        composable("employee_management") {
+            EmployeeManagementScreen(managementViewModel, onNavigateBack = { navController.popBackStack() })
+        }
+
+        // --- ROTAS DE DETALHES E PEDIDOS ---
         composable("detail/{itemId}") { backStackEntry ->
             val itemId = backStackEntry.arguments?.getString("itemId")
             val product = managementViewModel.products.find { it.id == itemId }
@@ -253,13 +251,9 @@ fun MainAppLayout(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var selectedIndex by remember { mutableIntStateOf(0) }
-
-    val userProfile = authViewModel.currentUserProfile
-    val userRole = userProfile?.role ?: "employee"
+    val userRole = authViewModel.currentUserProfile?.role ?: "employee"
     val isAdminMode = authViewModel.isUserSuperAdmin
 
-    // --- FILTRO DE MENUS POR CARGO ---
-    // Estrutura: Título, Ícone, RotaInterna (para o when)
     val allItems = listOf(
         Triple("Cardápio", Icons.Filled.RestaurantMenu, "Cardápio"),
         Triple("Cozinha", Icons.Default.SoupKitchen, "Cozinha"),
@@ -270,108 +264,39 @@ fun MainAppLayout(
 
     val visibleItems = remember(userRole) {
         when (userRole) {
-            "owner" -> allItems // Dono vê tudo
+            "owner" -> allItems
             "waiter" -> allItems.filter { it.first in listOf("Cardápio", "Mesa") }
             "kitchen" -> allItems.filter { it.first == "Cozinha" }
             "counter" -> allItems.filter { it.first in listOf("Balcão", "Cardápio") }
-            else -> emptyList() // Pendente
+            else -> emptyList()
         }
     }
 
-    // Garante que o índice selecionado seja válido
-    if (selectedIndex >= visibleItems.size && visibleItems.isNotEmpty()) {
-        selectedIndex = 0
-    }
+    if (selectedIndex >= visibleItems.size && visibleItems.isNotEmpty()) selectedIndex = 0
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
                 Spacer(Modifier.height(16.dp))
-                // --- CABEÇALHO ---
                 if (isAdminMode) {
-                    Surface(color = Color.Red.copy(alpha = 0.1f), modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Visibility, null, tint = Color.Red)
-                            Spacer(Modifier.width(8.dp))
-                            Column {
-                                Text("MODO ESPIÃO", color = Color.Red, fontWeight = FontWeight.Bold)
-                                Text("Acesso Admin", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-                } else if (userProfile != null) {
-                    Column(Modifier.padding(16.dp).fillMaxWidth()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp)) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = userProfile.name.take(1).uppercase(),
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 20.sp
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(userProfile.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                                val cargo = when(userProfile.role) {
-                                    "owner" -> "Gerente / Dono"
-                                    "waiter" -> "Garçom"
-                                    "kitchen" -> "Cozinha"
-                                    "counter" -> "Balcão"
-                                    else -> "Pendente"
-                                }
-                                Text(cargo, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                            }
-                        }
-                    }
-                    Divider()
+                    Text("MODO ESPIÃO", color = Color.Red, modifier = Modifier.padding(16.dp))
+                } else {
+                    Text(authViewModel.currentUserProfile?.name ?: "Usuário", modifier = Modifier.padding(16.dp), fontWeight = FontWeight.Bold)
                 }
-
-                // --- ITENS DO MENU ---
+                Divider()
                 visibleItems.forEachIndexed { index, (title, icon, _) ->
-                    NavigationDrawerItem(
-                        icon = { Icon(icon, null) },
-                        label = { Text(title) },
-                        selected = selectedIndex == index,
-                        onClick = {
-                            selectedIndex = index
-                            scope.launch { drawerState.close() }
-                        },
-                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                    )
+                    NavigationDrawerItem(icon = { Icon(icon, null) }, label = { Text(title) }, selected = selectedIndex == index, onClick = { selectedIndex = index; scope.launch { drawerState.close() } }, modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding))
                 }
-
                 Spacer(Modifier.weight(1f))
-
-                NavigationDrawerItem(
-                    icon = {
-                        if (isAdminMode) Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.Red)
-                        else Icon(Icons.Outlined.ExitToApp, null)
-                    },
-                    label = {
-                        if (isAdminMode) Text("Voltar ao Painel", color = Color.Red, fontWeight = FontWeight.Bold)
-                        else Text("Sair")
-                    },
-                    selected = false,
-                    onClick = {
-                        scope.launch {
-                            drawerState.close()
-                            if (isAdminMode) authViewModel.exitCompanyMode() else authViewModel.signOut()
-                        }
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
+                NavigationDrawerItem(icon = { Icon(Icons.Outlined.ExitToApp, null) }, label = { Text("Sair") }, selected = false, onClick = { scope.launch { drawerState.close(); if(isAdminMode) authViewModel.exitCompanyMode() else authViewModel.signOut() } }, modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding))
                 Spacer(Modifier.height(16.dp))
             }
         }
     ) {
         val currentItem = visibleItems.getOrNull(selectedIndex)
-
         if (currentItem != null) {
-            when (currentItem.third) { // Usa a string de rota interna
+            when (currentItem.third) {
                 "Cardápio" -> MainScreen(managementViewModel, !orderViewModel.isOrderEmpty, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
                 "Cozinha" -> KitchenScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
                 "Balcão" -> CounterScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
@@ -381,25 +306,14 @@ fun MainAppLayout(
                     { scope.launch { drawerState.open() } },
                     { navController.navigate("product_management") },
                     { navController.navigate("manage_categories") },
-                    {},
-                    {}
+                    { navController.navigate("employee_management") } // <--- ROTA CORRIGIDA
                 )
             }
-        } else {
-            // Fallback caso a lista esteja vazia ou índice inválido
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                if (userRole == "pending") {
-                    Text("Seu acesso ainda não foi liberado.")
-                } else {
-                    Text("Selecione uma opção no menu.")
-                }
-            }
-        }
+        } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Selecione uma opção.") }
     }
 }
 
-// ... Restante do arquivo (MainScreen, MenuItemCard, etc.) ...
-// Mantenha as funções auxiliares que já estavam no arquivo anterior.
+// ... (Mantenha MainScreen, MenuItemCard, etc. que já existem no arquivo) ...
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(

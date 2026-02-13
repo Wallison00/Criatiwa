@@ -27,9 +27,7 @@ class ManagementViewModel : ViewModel() {
     private var productsListener: ListenerRegistration? = null
     private var settingsListener: ListenerRegistration? = null
     private var pendingUsersListener: ListenerRegistration? = null
-
-    // NOVO: Listener para usuários ativos
-    private var activeUsersListener: ListenerRegistration? = null
+    private var employeesListener: ListenerRegistration? = null
 
     // --- ESTADOS ---
     var products by mutableStateOf<List<ManagedProduct>>(emptyList())
@@ -46,12 +44,10 @@ class ManagementViewModel : ViewModel() {
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
-    // Lista de Pendentes (Para aprovação)
     var pendingUsers by mutableStateOf<List<UserProfile>>(emptyList())
         private set
 
-    // NOVO: Lista de Ativos (Para visualização da equipe)
-    var activeUsers by mutableStateOf<List<UserProfile>>(emptyList())
+    var employees by mutableStateOf<List<UserProfile>>(emptyList())
         private set
 
     // --- INICIALIZAÇÃO ---
@@ -61,16 +57,17 @@ class ManagementViewModel : ViewModel() {
         productsListener?.remove()
         settingsListener?.remove()
         pendingUsersListener?.remove()
-        activeUsersListener?.remove() // Limpa o novo listener
+        employeesListener?.remove()
 
         startListeningProducts(companyId)
         startListeningSettings(companyId)
         startListeningForPendingUsers(companyId)
-        startListeningForActiveUsers(companyId) // Inicia a nova escuta
+        startListeningForEmployees(companyId)
         loadCompanyDetails(companyId)
     }
 
-    // --- BUSCA PENDENTES ---
+    // --- GERENCIAMENTO DE USUÁRIOS ---
+
     private fun startListeningForPendingUsers(companyId: String) {
         pendingUsersListener = db.collection("users")
             .whereEqualTo("companyId", companyId)
@@ -82,21 +79,52 @@ class ManagementViewModel : ViewModel() {
             }
     }
 
-    // --- NOVO: BUSCA ATIVOS (A EQUIPE) ---
-    private fun startListeningForActiveUsers(companyId: String) {
-        activeUsersListener = db.collection("users")
+    private fun startListeningForEmployees(companyId: String) {
+        employeesListener = db.collection("users")
             .whereEqualTo("companyId", companyId)
-            .whereEqualTo("status", "active")
+            .whereIn("status", listOf("active", "blocked"))
             .addSnapshotListener { snapshot, _ ->
                 if (snapshot != null) {
-                    activeUsers = snapshot.toObjects(UserProfile::class.java)
-                        // Opcional: Ordenar por nome
+                    employees = snapshot.toObjects(UserProfile::class.java)
                         .sortedBy { it.name }
                 }
             }
     }
 
-    // --- DADOS DA EMPRESA ---
+    fun toggleUserStatus(user: UserProfile) {
+        val newStatus = if (user.status == "blocked") "active" else "blocked"
+        viewModelScope.launch {
+            try {
+                db.collection("users").document(user.uid).update("status", newStatus).await()
+            } catch (e: Exception) {
+                errorMessage = "Erro ao alterar status: ${e.message}"
+            }
+        }
+    }
+
+    fun deleteUser(userId: String) {
+        viewModelScope.launch {
+            try {
+                // Exclusão Lógica (Mantém histórico, mas remove acesso)
+                db.collection("users").document(userId).update("status", "deleted").await()
+            } catch (e: Exception) {
+                errorMessage = "Erro ao excluir: ${e.message}"
+            }
+        }
+    }
+
+    // --- NOVA FUNÇÃO: ATUALIZAR CARGO ---
+    fun updateUserRole(userId: String, newRole: String) {
+        viewModelScope.launch {
+            try {
+                db.collection("users").document(userId).update("role", newRole).await()
+            } catch (e: Exception) {
+                errorMessage = "Erro ao atualizar cargo: ${e.message}"
+            }
+        }
+    }
+
+    // --- DADOS DA EMPRESA (Mantido) ---
     private fun loadCompanyDetails(companyId: String) {
         viewModelScope.launch {
             errorMessage = null
@@ -117,7 +145,7 @@ class ManagementViewModel : ViewModel() {
         }
     }
 
-    // --- PRODUTOS ---
+    // --- PRODUTOS E CONFIGURAÇÕES (Mantido igual) ---
     private fun startListeningProducts(companyId: String) {
         productsListener = db.collection("companies").document(companyId).collection("products")
             .addSnapshotListener { snapshot, e ->
@@ -146,7 +174,6 @@ class ManagementViewModel : ViewModel() {
             }
     }
 
-    // --- CONFIGURAÇÕES ---
     private fun startListeningSettings(companyId: String) {
         settingsListener = db.collection("companies").document(companyId)
             .collection("settings").document("menu_structure")
@@ -178,39 +205,13 @@ class ManagementViewModel : ViewModel() {
         saveCategoriesToFirebase()
     }
 
-    // --- FUNÇÕES CRUD (Mantidas) ---
-    fun addCategory(name: String) {
-        if (categoryConfigs.none { it.name.equals(name, ignoreCase = true) }) {
-            categoryConfigs = categoryConfigs + CategoryConfig(name)
-            saveCategoriesToFirebase()
-        }
-    }
-
-    fun deleteCategory(name: String) {
-        categoryConfigs = categoryConfigs.filter { it.name != name }
-        saveCategoriesToFirebase()
-    }
-
-    fun addIngredientToCategory(categoryName: String, ingredient: String) {
-        updateCategory(categoryName) { it.copy(defaultIngredients = it.defaultIngredients + ingredient) }
-    }
-
-    fun removeIngredientFromCategory(categoryName: String, ingredient: String) {
-        updateCategory(categoryName) { it.copy(defaultIngredients = it.defaultIngredients - ingredient) }
-    }
-
-    fun addOptionalToCategory(categoryName: String, optional: OptionalItem) {
-        updateCategory(categoryName) { it.copy(availableOptionals = it.availableOptionals + optional) }
-    }
-
-    fun removeOptionalFromCategory(categoryName: String, optional: OptionalItem) {
-        updateCategory(categoryName) { it.copy(availableOptionals = it.availableOptionals - optional) }
-    }
-
-    private fun updateCategory(name: String, update: (CategoryConfig) -> CategoryConfig) {
-        categoryConfigs = categoryConfigs.map { if (it.name == name) update(it) else it }
-        saveCategoriesToFirebase()
-    }
+    fun addCategory(name: String) { if (categoryConfigs.none { it.name.equals(name, ignoreCase = true) }) { categoryConfigs = categoryConfigs + CategoryConfig(name); saveCategoriesToFirebase() } }
+    fun deleteCategory(name: String) { categoryConfigs = categoryConfigs.filter { it.name != name }; saveCategoriesToFirebase() }
+    fun addIngredientToCategory(cat: String, ing: String) { updateCategory(cat) { it.copy(defaultIngredients = it.defaultIngredients + ing) } }
+    fun removeIngredientFromCategory(cat: String, ing: String) { updateCategory(cat) { it.copy(defaultIngredients = it.defaultIngredients - ing) } }
+    fun addOptionalToCategory(cat: String, opt: OptionalItem) { updateCategory(cat) { it.copy(availableOptionals = it.availableOptionals + opt) } }
+    fun removeOptionalFromCategory(cat: String, opt: OptionalItem) { updateCategory(cat) { it.copy(availableOptionals = it.availableOptionals - opt) } }
+    private fun updateCategory(name: String, update: (CategoryConfig) -> CategoryConfig) { categoryConfigs = categoryConfigs.map { if (it.name == name) update(it) else it }; saveCategoriesToFirebase() }
 
     private fun saveCategoriesToFirebase() {
         val companyId = currentCompanyId ?: return
@@ -227,10 +228,7 @@ class ManagementViewModel : ViewModel() {
             try {
                 val finalImageUrl = if (newImageUri != null) compressUriToBase64(context, newImageUri) else product.imageUrl
                 val nextCode = if (product.id.isBlank()) (products.maxOfOrNull { it.code } ?: 0) + 1 else product.code
-                val productData = hashMapOf(
-                    "code" to nextCode, "name" to product.name, "price" to product.price, "imageUrl" to finalImageUrl,
-                    "isActive" to product.isActive, "category" to product.category, "ingredients" to product.ingredients.toList(), "optionals" to product.optionals.toList()
-                )
+                val productData = hashMapOf("code" to nextCode, "name" to product.name, "price" to product.price, "imageUrl" to finalImageUrl, "isActive" to product.isActive, "category" to product.category, "ingredients" to product.ingredients.toList(), "optionals" to product.optionals.toList())
                 val ref = db.collection("companies").document(companyId).collection("products")
                 if (product.id.isBlank()) ref.add(productData) else ref.document(product.id).set(productData)
                 isUploading = false
@@ -239,26 +237,10 @@ class ManagementViewModel : ViewModel() {
         }
     }
 
-    private fun compressUriToBase64(context: Context, uri: Uri): String {
-        return try {
-            val inputStream = context.contentResolver.openInputStream(uri)
-            val bitmap = BitmapFactory.decodeStream(inputStream)
-            val outputStream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream)
-            "data:image/jpeg;base64," + Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
-        } catch (e: Exception) { "" }
-    }
+    private fun compressUriToBase64(context: Context, uri: Uri): String { return try { val inputStream = context.contentResolver.openInputStream(uri); val bitmap = BitmapFactory.decodeStream(inputStream); val outputStream = ByteArrayOutputStream(); bitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream); "data:image/jpeg;base64," + Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP) } catch (e: Exception) { "" } }
+    fun deleteProduct(product: ManagedProduct) { val companyId = currentCompanyId ?: return; if (product.id.isNotBlank()) db.collection("companies").document(companyId).collection("products").document(product.id).delete() }
 
-    fun deleteProduct(product: ManagedProduct) {
-        val companyId = currentCompanyId ?: return
-        if (product.id.isNotBlank()) db.collection("companies").document(companyId).collection("products").document(product.id).delete()
-    }
-
-    val productsByCategory: List<MenuCategory>
-        get() = products.filter { it.isActive }.groupBy { it.category }.map { (cat, items) -> MenuCategory(cat, items.map { MenuItem(it.id, it.code, it.name, it.price, it.imageUrl) }) }
-
-    var productToEdit by mutableStateOf<ManagedProduct?>(null)
-        private set
-    fun loadProductForEdit(product: ManagedProduct) { productToEdit = product }
-    fun clearEditState() { productToEdit = null }
+    val productsByCategory: List<MenuCategory> get() = products.filter { it.isActive }.groupBy { it.category }.map { (cat, items) -> MenuCategory(cat, items.map { MenuItem(it.id, it.code, it.name, it.price, it.imageUrl) }) }
+    var productToEdit by mutableStateOf<ManagedProduct?>(null); private set
+    fun loadProductForEdit(product: ManagedProduct) { productToEdit = product }; fun clearEditState() { productToEdit = null }
 }

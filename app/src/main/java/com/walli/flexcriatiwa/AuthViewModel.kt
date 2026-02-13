@@ -55,8 +55,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                         authState = AuthState.LoggedIn(profile.companyId, profile.role)
                     } else if (profile.status == "pending_approval") {
                         authState = AuthState.PendingApproval
-                    } else if (profile.status == "blocked") {
-                        authState = AuthState.Error("Acesso bloqueado.")
+                        // --- ATUALIZADO AQUI: Trata 'deleted' como bloqueio também ---
+                    } else if (profile.status == "blocked" || profile.status == "deleted") {
+                        authState = AuthState.Error("Acesso revogado.")
                         auth.signOut()
                     }
                 }
@@ -79,13 +80,12 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- LOGIN COM GOOGLE ---
     fun loginWithGoogleCredential(shareCode: String, idToken: String, onResult: (Boolean, String?) -> Unit) {
         val cleanCode = shareCode.trim().uppercase()
 
         viewModelScope.launch {
             try {
-                // 1. Valida a Empresa pelo código
+                // 1. Valida Empresa
                 val snapshot = db.collection("companies").whereEqualTo("shareCode", cleanCode).limit(1).get().await()
                 if (snapshot.isEmpty) {
                     onResult(false, "Código da empresa inválido.")
@@ -93,30 +93,32 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val companyId = snapshot.documents.first().id
 
-                // 2. Autentica no Firebase com Google
+                // 2. Autentica no Firebase
                 val credential = GoogleAuthProvider.getCredential(idToken, null)
                 val authResult = auth.signInWithCredential(credential).await()
                 val user = authResult.user ?: throw Exception("Falha na autenticação Google")
 
-                // 3. Verifica se o usuário já existe
+                // 3. Verifica/Cria Usuário
                 val userDocRef = db.collection("users").document(user.uid)
                 val userDoc = userDocRef.get().await()
 
                 if (userDoc.exists()) {
                     // Usuário existente
                     val currentCompany = userDoc.getString("companyId")
+                    val currentStatus = userDoc.getString("status")
 
+                    // Se ele foi deletado/bloqueado DA MESMA empresa, não deixamos resetar o status.
+                    // Mas se ele estiver mudando de empresa, damos uma nova chance (reset para pending)
                     if (currentCompany != companyId) {
-                        // Se mudou de empresa, atualiza e reseta para pendente
                         userDocRef.update(mapOf(
                             "companyId" to companyId,
                             "role" to "pending",
                             "status" to "pending_approval"
                         )).await()
                     }
-                    // Se for a mesma empresa, mantém o status atual (ativo/pendente)
+                    // Se for a mesma empresa, o status 'deleted' será pego pelo listener e bloqueará o login.
                 } else {
-                    // Novo usuário: Cria como pendente
+                    // Novo usuário
                     val userProfile = UserProfile(
                         uid = user.uid,
                         email = user.email ?: "",
@@ -167,9 +169,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun enterCompanyMode(companyId: String) { if(isUserSuperAdmin) authState = AuthState.LoggedIn(companyId, "admin_viewer") }
     fun exitCompanyMode() { if(isUserSuperAdmin) authState = AuthState.SuperAdmin }
-    fun joinCompanyWithCode(code: String, onSuccess: () -> Unit) {} // Não usado no fluxo QR
+    fun joinCompanyWithCode(code: String, onSuccess: () -> Unit) {}
     fun forceOfflineLogin(email: String) {}
-    // Compatibilidade
     fun checkQRCodeUserStatus(code: String, onNew: () -> Unit, onOld: () -> Unit) { onNew() }
     fun registerQRCodeUser(code: String, name: String, role: String, success: () -> Unit) {}
 }
