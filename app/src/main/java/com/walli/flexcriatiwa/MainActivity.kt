@@ -229,7 +229,7 @@ fun AuthorizedApp(
             val activeTableId = tableNumberArg ?: orderViewModel.tableSelection.firstOrNull()
             val ordersByTable by kitchenViewModel.ordersByTable.collectAsState()
 
-            // AGORA: Obtemos a lista completa de pedidos (KitchenOrder), não itens achatados
+            // CORREÇÃO: Passar a lista de PEDIDOS, não de ITENS
             val existingOrders = remember(ordersByTable, activeTableId) {
                 if (activeTableId != null) {
                     ordersByTable[activeTableId] ?: emptyList()
@@ -252,12 +252,21 @@ fun AuthorizedApp(
                 }
             }
 
-            OrderScreen(orderViewModel, kitchenViewModel, existingOrders, { orderViewModel.clearAll(); navController.popBackStack() }, { navController.navigate("main_layout") }, { orderViewModel.loadItemForEdit(it); navController.navigate("detail/${it.menuItem.id}") },
-                {
+            // CORREÇÃO: Passa 'existingOrders'
+            OrderScreen(
+                orderViewModel = orderViewModel,
+                kitchenViewModel = kitchenViewModel,
+                existingOrders = existingOrders, // <-- Aqui
+                onCancelOrder = { orderViewModel.clearAll(); navController.popBackStack() },
+                onAddItem = { navController.navigate("main_layout") },
+                onEditItem = { orderViewModel.loadItemForEdit(it); navController.navigate("detail/${it.menuItem.id}") },
+                onSendToKitchen = {
                     if (activeTableId != null) kitchenViewModel.addItemsToTableOrder(activeTableId, orderViewModel.currentCartItems)
                     else kitchenViewModel.submitNewOrder(orderViewModel.currentCartItems, orderViewModel.destinationType, orderViewModel.tableSelection, orderViewModel.clientName, orderViewModel.payments)
                     orderViewModel.clearAll(); navController.navigate("main_layout") { popUpTo("main_layout") { inclusive = true } }
-                }, { navController.popBackStack() })
+                },
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
     }
 }

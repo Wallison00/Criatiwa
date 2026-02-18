@@ -90,15 +90,14 @@ class KitchenViewModel : ViewModel() {
 
     // --- CORREÇÃO PRINCIPAL AQUI ---
     fun addItemsToTableOrder(tableNumber: Int, newItems: List<OrderItem>) {
-        // ANTES: Procurava pedido existente e juntava (Update).
-        // AGORA: Cria SEMPRE um novo pedido (Add), garantindo fila correta na cozinha.
-
+        // Removemos a lógica de buscar 'existingOrder' para não furar fila na cozinha.
+        // Cada envio da mesa gera um ticket novo.
         submitNewOrder(
             items = newItems,
             destinationType = "Local",
             tableSelection = setOf(tableNumber),
             clientName = "Mesa $tableNumber",
-            payments = emptyList() // Novos itens ainda não foram pagos
+            payments = emptyList()
         )
     }
 
@@ -110,29 +109,17 @@ class KitchenViewModel : ViewModel() {
 
     fun closeBillWithDetails(orders: List<KitchenOrder>, newPayments: List<SplitPayment>, note: String?) {
         val companyId = currentCompanyId ?: return
-
         viewModelScope.launch {
-            // Atualiza TODOS os pedidos ativos daquela mesa
             orders.forEach { order ->
-                // Só altera status se não estiver já finalizado (embora o filtro já cuide disso)
                 if (order.status != OrderStatus.FINISHED) {
-                    val updateData = mutableMapOf<String, Any>(
-                        "status" to OrderStatus.NEEDS_CLEANING.name
-                    )
-
-                    if (!note.isNullOrBlank()) {
-                        updateData["closingNote"] = note
-                    }
+                    val updateData = mutableMapOf<String, Any>("status" to OrderStatus.NEEDS_CLEANING.name)
+                    if (!note.isNullOrBlank()) updateData["closingNote"] = note
 
                     if (newPayments.isNotEmpty()) {
-                        // Atenção: Isso replica o pagamento em todos os pedidos da mesa.
-                        // Visualmente funciona para o histórico, mas idealmente pagamentos seriam uma coleção separada.
-                        // Para o MVP atual, isso garante que ao abrir qualquer um dos pedidos antigos, conste como pago.
                         val currentPaymentsMaps = order.payments.map { mapOf("amount" to it.amount, "method" to it.method) }
                         val newPaymentsMaps = newPayments.map { mapOf("amount" to it.amount, "method" to it.method) }
                         updateData["payments"] = currentPaymentsMaps + newPaymentsMaps
                     }
-
                     db.collection("companies").document(companyId).collection("orders").document(order.firebaseId).update(updateData)
                 }
             }
