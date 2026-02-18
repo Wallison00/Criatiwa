@@ -88,11 +88,9 @@ class KitchenViewModel : ViewModel() {
         db.collection("companies").document(companyId).collection("orders").add(data)
     }
 
-    // --- CORREÇÃO PRINCIPAL AQUI ---
+    // --- CORREÇÃO FEITA: SEMPRE CRIA NOVO PEDIDO (FIFO) ---
     fun addItemsToTableOrder(tableNumber: Int, newItems: List<OrderItem>) {
-        // REMOVA A LÓGICA DE "IF (EXISTINGORDER != NULL)"
-        // MANTENHA APENAS A CRIAÇÃO DE UM NOVO PEDIDO PARA GARANTIR A FILA CORRETA (FIFO)
-
+        // NÃO buscamos mais existingOrder. Criamos sempre um novo.
         submitNewOrder(
             items = newItems,
             destinationType = "Local",
@@ -110,17 +108,24 @@ class KitchenViewModel : ViewModel() {
 
     fun closeBillWithDetails(orders: List<KitchenOrder>, newPayments: List<SplitPayment>, note: String?) {
         val companyId = currentCompanyId ?: return
+
         viewModelScope.launch {
             orders.forEach { order ->
                 if (order.status != OrderStatus.FINISHED) {
-                    val updateData = mutableMapOf<String, Any>("status" to OrderStatus.NEEDS_CLEANING.name)
-                    if (!note.isNullOrBlank()) updateData["closingNote"] = note
+                    val updateData = mutableMapOf<String, Any>(
+                        "status" to OrderStatus.NEEDS_CLEANING.name
+                    )
+
+                    if (!note.isNullOrBlank()) {
+                        updateData["closingNote"] = note
+                    }
 
                     if (newPayments.isNotEmpty()) {
                         val currentPaymentsMaps = order.payments.map { mapOf("amount" to it.amount, "method" to it.method) }
                         val newPaymentsMaps = newPayments.map { mapOf("amount" to it.amount, "method" to it.method) }
                         updateData["payments"] = currentPaymentsMaps + newPaymentsMaps
                     }
+
                     db.collection("companies").document(companyId).collection("orders").document(order.firebaseId).update(updateData)
                 }
             }
