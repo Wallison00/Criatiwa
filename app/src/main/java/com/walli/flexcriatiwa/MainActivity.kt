@@ -421,74 +421,71 @@ fun MainScreen(
     val categories = remember(managementViewModel.products, searchText) {
         val all = managementViewModel.productsByCategory
         if (searchText.isBlank()) all else all.mapNotNull { cat ->
-            val items = cat.items.filter { it.name.contains(searchText, ignoreCase = true) }
+            // --- CORREÇÃO DA BUSCA ---
+            // Formata o código do item para o padrão de exibição (#001) para permitir buscas como "001"
+            val items = cat.items.filter {
+                val formattedCode = "#%03d".format(it.code)
+                it.name.contains(searchText, ignoreCase = true) ||
+                        formattedCode.contains(searchText, ignoreCase = true)
+            }
             if (items.isNotEmpty()) cat.copy(items = items) else null
         }
     }
 
-    // --- CORREÇÃO 1: VÍNCULO DIRETO COM O SCROLL ---
-    // Agora o chip selecionado reflete diretamente o primeiro item visível na tela
     val activeCategoryIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    if (!isSearchExpanded) {
-                        Text("Cardápio", fontWeight = FontWeight.Bold)
-                    }
+                    Text("Cardápio", fontWeight = FontWeight.Bold)
                 },
                 navigationIcon = {
-                    if (isSearchExpanded) {
-                        IconButton(onClick = { isSearchExpanded = false; searchText = "" }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Fechar Busca")
-                        }
-                    } else {
-                        IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, "Menu") }
-                    }
+                    IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, "Menu") }
                 },
                 actions = {
-                    AnimatedVisibility(
-                        visible = isSearchExpanded,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
-                    ) {
-                        OutlinedTextField(
-                            value = searchText,
-                            onValueChange = { searchText = it },
-                            placeholder = { Text("Buscar produtos...") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(24.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                focusedBorderColor = MaterialTheme.colorScheme.outline,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                            ),
-                            leadingIcon = { Icon(Icons.Default.Search, null) },
-                            trailingIcon = {
-                                if (searchText.isNotEmpty()) {
-                                    IconButton(onClick = { searchText = "" }) {
-                                        Icon(Icons.Default.Close, "Limpar")
-                                    }
-                                }
-                            }
+                    IconButton(onClick = { isSearchExpanded = !isSearchExpanded }) {
+                        Icon(
+                            imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
+                            contentDescription = if (isSearchExpanded) "Fechar Busca" else "Buscar"
                         )
-                    }
-
-                    if (!isSearchExpanded) {
-                        IconButton(onClick = { isSearchExpanded = true }) {
-                            Icon(Icons.Default.Search, "Buscar")
-                        }
                     }
                 }
             )
         }
     ) { innerPadding ->
         Column(Modifier.padding(innerPadding).fillMaxSize()) {
+
+            AnimatedVisibility(
+                visible = isSearchExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                OutlinedTextField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    placeholder = { Text("Buscar produtos...") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedBorderColor = MaterialTheme.colorScheme.outline,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    trailingIcon = {
+                        if (searchText.isNotEmpty()) {
+                            IconButton(onClick = { searchText = "" }) {
+                                Icon(Icons.Default.Close, "Limpar")
+                            }
+                        }
+                    }
+                )
+            }
 
             if (categories.isNotEmpty()) {
                 LazyRow(
@@ -501,8 +498,6 @@ fun MainScreen(
                         CategoryChip(
                             text = category.name,
                             isSelected = index == activeCategoryIndex,
-                            // --- CORREÇÃO 2: CLIQUE PARA ROLAR CORRETO ---
-                            // Clica no chip -> Rola para o índice CORRETO da categoria
                             onClick = {
                                 scope.launch { listState.animateScrollToItem(index) }
                             }
