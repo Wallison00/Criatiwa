@@ -7,6 +7,7 @@ import com.google.firebase.Firebase
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch // Importante para rodar o update
 
 class KitchenViewModel : ViewModel() {
 
@@ -49,6 +50,7 @@ class KitchenViewModel : ViewModel() {
                             val items = (doc.get("items") as? List<Map<String, Any>>)?.map { mapToOrderItem(it) } ?: emptyList()
                             val tables = (doc.get("tableSelection") as? List<Number>)?.map { it.toInt() }?.toSet() ?: emptySet()
                             val payments = (doc.get("payments") as? List<Map<String, Any>>)?.map { SplitPayment((it["amount"] as? Number)?.toDouble() ?: 0.0, it["method"] as? String ?: "") } ?: emptyList()
+                            val closingNote = doc.getString("closingNote") // Lendo a justificativa
 
                             KitchenOrder(
                                 id = (doc.get("timestamp") as? Number)?.toLong() ?: 0L,
@@ -56,7 +58,9 @@ class KitchenViewModel : ViewModel() {
                                 timestamp = (doc.get("timestamp") as? Number)?.toLong() ?: 0L,
                                 status = OrderStatus.valueOf(doc.getString("status") ?: "PREPARING"),
                                 destinationType = doc.getString("destinationType"),
-                                tableSelection = tables, clientName = doc.getString("clientName"), payments = payments
+                                tableSelection = tables, clientName = doc.getString("clientName"),
+                                payments = payments,
+                                closingNote = closingNote
                             )
                         } catch (e: Exception) { null }
                     }
@@ -70,7 +74,9 @@ class KitchenViewModel : ViewModel() {
         val data = hashMapOf(
             "timestamp" to System.currentTimeMillis(), "status" to OrderStatus.PREPARING.name,
             "destinationType" to destinationType, "tableSelection" to tableSelection.toList(), "clientName" to clientName,
-            "items" to items.map { orderItemToMap(it) }, "payments" to payments.map { mapOf("amount" to it.amount, "method" to it.method) }
+            "items" to items.map { orderItemToMap(it) },
+            "payments" to payments.map { mapOf("amount" to it.amount, "method" to it.method) },
+            "closingNote" to null
         )
         db.collection("companies").document(companyId).collection("orders").add(data)
     }
@@ -91,6 +97,35 @@ class KitchenViewModel : ViewModel() {
         val companyId = currentCompanyId ?: return
         val order = _allActiveOrders.value.find { it.id == numericId } ?: return
         db.collection("companies").document(companyId).collection("orders").document(order.firebaseId).update("status", newStatus.name)
+    }
+
+    // --- NOVA FUNÇÃO PARA FECHAR CONTA COM PAGAMENTOS E NOTA ---
+    fun closeBillWithDetails(orders: List<KitchenOrder>, newPayments: List<SplitPayment>, note: String?) {
+        val companyId = currentCompanyId ?: return
+
+        viewModelScope.launch {
+            orders.forEach { order ->
+                if (order.status == OrderStatus.DELIVERED || order.status == OrderStatus.READY) {
+                    val updateData = mutableMapOf<String, Any>(
+                        "status" to OrderStatus.NEEDS_CLEANING.name
+                    )
+
+                    // Se houver nota, adiciona (apenas no primeiro pedido para não duplicar se houver merge, ou em todos)
+                    if (!note.isNullOrBlank()) {
+                        updateData["closingNote"] = note
+                    }
+
+                    // Se houver novos pagamentos, adiciona à lista existente
+                    if (newPayments.isNotEmpty()) {
+                        val currentPaymentsMaps = order.payments.map { mapOf("amount" to it.amount, "method" to it.method) }
+                        val newPaymentsMaps = newPayments.map { mapOf("amount" to it.amount, "method" to it.method) }
+                        updateData["payments"] = currentPaymentsMaps + newPaymentsMaps
+                    }
+
+                    db.collection("companies").document(companyId).collection("orders").document(order.firebaseId).update(updateData)
+                }
+            }
+        }
     }
 
     fun finishAndCleanTable(tableNumber: Int) {

@@ -5,11 +5,11 @@ import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 
-// --- CONFIGURAÇÃO DA CATEGORIA (NOVO) ---
+// --- CONFIGURAÇÃO DA CATEGORIA ---
 data class CategoryConfig(
     val name: String,
-    val defaultIngredients: List<String> = emptyList(), // Ingredientes base (ex: Pão, Carne)
-    val availableOptionals: List<OptionalItem> = emptyList() // Opcionais (ex: Bacon, Ovo)
+    val defaultIngredients: List<String> = emptyList(),
+    val availableOptionals: List<OptionalItem> = emptyList()
 )
 
 // --- ITENS DO CARDÁPIO ---
@@ -52,7 +52,8 @@ data class KitchenOrder(
     val destinationType: String?,
     val tableSelection: Set<Int>,
     val clientName: String?,
-    val payments: List<SplitPayment>
+    val payments: List<SplitPayment>,
+    val closingNote: String? = null // <--- NOVO CAMPO: Justificativa
 )
 
 enum class OrderStatus {

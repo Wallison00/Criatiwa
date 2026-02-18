@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-// REMOVIDO: Imports automirrored que causavam erro
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AddCircleOutline
@@ -19,11 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -41,7 +37,7 @@ fun OrderScreen(
 ) {
     val cartItems = orderViewModel.currentCartItems
     val destinationType = orderViewModel.destinationType
-    val payments = orderViewModel.payments
+    val newPayments = orderViewModel.payments // Pagamentos adicionados AGORA nesta tela
     val occupiedTables by kitchenViewModel.occupiedTables.collectAsState(initial = emptySet())
     val ordersByTable by kitchenViewModel.ordersByTable.collectAsState(initial = emptyMap())
 
@@ -52,13 +48,66 @@ fun OrderScreen(
     val currentTableId = orderViewModel.tableSelection.firstOrNull()
     val activeOrdersForTable = if (currentTableId != null) ordersByTable[currentTableId] ?: emptyList() else emptyList()
 
+    // Lógica de Pagamento
+    val existingPaymentsValue = activeOrdersForTable.sumOf { order -> order.payments.sumOf { it.amount } }
+    val newPaymentsValue = newPayments.sumOf { it.amount }
+    val totalPaid = existingPaymentsValue + newPaymentsValue
+    val remainingAmount = totalPrice - totalPaid
+    val isFullyPaid = remainingAmount <= 0.01 // Margem de erro float
+
     val canCloseBill = activeOrdersForTable.any { it.status == OrderStatus.DELIVERED }
 
     var showPaymentDialog by remember { mutableStateOf(false) }
     var showDestinationDialog by remember { mutableStateOf(false) }
     var showCancellationDialog by remember { mutableStateOf(false) }
+    var showJustificationDialog by remember { mutableStateOf(false) } // Dialog da justificativa
 
     val canSendOrder = cartItems.isNotEmpty() && destinationType != null
+
+    // --- DIALOGS ---
+
+    if (showJustificationDialog) {
+        var justificationText by remember { mutableStateOf("") }
+        var isError by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showJustificationDialog = false },
+            title = { Text("Justificar Pendência") },
+            text = {
+                Column {
+                    Text("O valor total não foi pago. Restante: R$ ${"%.2f".format(remainingAmount)}", color = Color.Red)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = justificationText,
+                        onValueChange = { justificationText = it; isError = false },
+                        label = { Text("Motivo do não pagamento") },
+                        isError = isError,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (isError) Text("Obrigatório informar o motivo.", color = Color.Red, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (justificationText.isBlank()) {
+                            isError = true
+                        } else {
+                            // Fecha com justificativa
+                            kitchenViewModel.closeBillWithDetails(activeOrdersForTable, newPayments, justificationText)
+                            orderViewModel.clearAll() // Limpa pagamentos locais
+                            showJustificationDialog = false
+                            onNavigateBack()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                ) {
+                    Text("Confirmar Fechamento")
+                }
+            },
+            dismissButton = { TextButton(onClick = { showJustificationDialog = false }) { Text("Cancelar") } }
+        )
+    }
 
     if (showDestinationDialog) {
         DestinationDialog(
@@ -77,10 +126,11 @@ fun OrderScreen(
     if (showPaymentDialog) {
         PaymentDialog(
             totalOrderPrice = totalPrice,
-            currentPayments = payments,
+            currentPayments = newPayments, // Mostra apenas os novos pagamentos para editar
+            alreadyPaidAmount = existingPaymentsValue, // Passa o que já foi pago antes
             onDismiss = { showPaymentDialog = false },
-            onConfirm = { newPayments ->
-                orderViewModel.updatePayments(newPayments)
+            onConfirm = { updatedPayments ->
+                orderViewModel.updatePayments(updatedPayments)
                 showPaymentDialog = false
             },
             onAddPayment = { payment -> orderViewModel.addPayment(payment) },
@@ -96,10 +146,7 @@ fun OrderScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Pedido", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    // VOLTAMOS AO ÍCONE PADRÃO
-                    IconButton(onClick = onNavigateBack) { Icon(Icons.Default.ArrowBack, "Voltar") }
-                },
+                navigationIcon = { IconButton(onClick = onNavigateBack) { Icon(Icons.Default.ArrowBack, "Voltar") } },
                 actions = { TextButton(onClick = { showCancellationDialog = true }) { Text("Cancelar") } }
             )
         },
@@ -112,7 +159,9 @@ fun OrderScreen(
                 ) {
                     Column {
                         Text("Total: R$ ${"%.2f".format(totalPrice)}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("$totalItems itens", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                        if (totalPaid > 0) {
+                            Text("Pago: R$ ${"%.2f".format(totalPaid)}", style = MaterialTheme.typography.bodyMedium, color = if(isFullyPaid) Color(0xFF4CAF50) else Color.Red)
+                        }
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -123,7 +172,6 @@ fun OrderScreen(
                             ) {
                                 Text("Enviar")
                                 Spacer(Modifier.width(4.dp))
-                                // VOLTAMOS AO ÍCONE PADRÃO
                                 Icon(Icons.Default.Send, null)
                             }
                         }
@@ -131,14 +179,17 @@ fun OrderScreen(
                         if (canCloseBill && !canSendOrder) {
                             Button(
                                 onClick = {
-                                    activeOrdersForTable.forEach { order ->
-                                        if (order.status == OrderStatus.DELIVERED) {
-                                            kitchenViewModel.updateOrderStatus(order.id, OrderStatus.NEEDS_CLEANING)
-                                        }
+                                    if (isFullyPaid) {
+                                        // Fecha direto se estiver tudo pago
+                                        kitchenViewModel.closeBillWithDetails(activeOrdersForTable, newPayments, null)
+                                        orderViewModel.clearAll()
+                                        onNavigateBack()
+                                    } else {
+                                        // Abre diálogo de justificativa
+                                        showJustificationDialog = true
                                     }
-                                    onNavigateBack()
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                                colors = ButtonDefaults.buttonColors(containerColor = if (isFullyPaid) Color(0xFF1976D2) else Color(0xFFE91E63)) // Azul se pago, Rosa se pendente
                             ) {
                                 Text("Fechar Conta")
                                 Spacer(Modifier.width(4.dp))
@@ -185,9 +236,10 @@ fun OrderScreen(
                 )
             }
             item {
+                // Mostra total pago (Antigo + Novo)
                 SummarySectionCard(
                     title = "Pagamento:",
-                    info = if (payments.isNotEmpty()) "${payments.size} pagamentos" else "Pendente",
+                    info = if (totalPaid > 0) "R$ ${"%.2f".format(totalPaid)}" else "Pendente",
                     onEditClick = { showPaymentDialog = true }
                 )
             }
@@ -305,6 +357,7 @@ fun SummarySectionCard(title: String, info: String, onEditClick: () -> Unit) {
 fun PaymentDialog(
     totalOrderPrice: Double,
     currentPayments: List<SplitPayment>,
+    alreadyPaidAmount: Double, // Novo parâmetro para saber o que já foi pago no DB
     onDismiss: () -> Unit,
     onConfirm: (List<SplitPayment>) -> Unit,
     onAddPayment: (SplitPayment) -> Unit,
@@ -314,40 +367,49 @@ fun PaymentDialog(
     var selectedPaymentMethod by remember { mutableStateOf("Dinheiro") }
     var amountValue by remember { mutableStateOf("") }
 
-    val totalPaid = currentPayments.sumOf { it.amount }
-    val remainingAmount = (totalOrderPrice.toBigDecimal() - totalPaid.toBigDecimal()).toDouble()
+    val totalPaidCurrentSession = currentPayments.sumOf { it.amount }
+    val totalPaidGlobally = alreadyPaidAmount + totalPaidCurrentSession
+
+    val remainingAmount = (totalOrderPrice.toBigDecimal() - totalPaidGlobally.toBigDecimal()).toDouble()
+
     val currentAmountInput = (amountValue.toLongOrNull() ?: 0L) / 100.0
-    val isFullyPaid = remainingAmount <= 0.0
+    val isFullyPaid = remainingAmount <= 0.01 // Margem segura
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Pagamento") },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                item {
-                    Row {
-                        FilterChip(selected = paymentFormat == "Integral", onClick = { paymentFormat = "Integral"; onClearPayments() }, label = { Text("Integral") })
-                        Spacer(Modifier.width(8.dp))
-                        FilterChip(selected = paymentFormat == "Dividir Conta", onClick = { paymentFormat = "Dividir Conta" }, label = { Text("Dividir") })
-                    }
-                }
-
-                if (!isFullyPaid || paymentFormat == "Integral") {
-                    if (paymentFormat == "Dividir Conta") {
-                        item {
-                            OutlinedTextField(
-                                value = amountValue,
-                                onValueChange = { str -> if (str.all { it.isDigit() }) amountValue = str },
-                                label = { Text("Valor (Restante: R$ ${"%.2f".format(remainingAmount)})") },
-                                visualTransformation = CurrencyVisualTransformation(),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                            )
+                // Se já estiver pago ou parcialmente pago, não mostra opção "Integral" confusa
+                // Se já pagou tudo no banco, mostra aviso
+                if (alreadyPaidAmount >= totalOrderPrice) {
+                    item { Text("Este pedido já foi totalmente pago.", color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold) }
+                } else {
+                    item {
+                        Row {
+                            FilterChip(selected = paymentFormat == "Integral", onClick = { paymentFormat = "Integral"; onClearPayments() }, label = { Text("Integral") })
+                            Spacer(Modifier.width(8.dp))
+                            FilterChip(selected = paymentFormat == "Dividir Conta", onClick = { paymentFormat = "Dividir Conta" }, label = { Text("Dividir") })
                         }
                     }
-                    item {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("Dinheiro", "Crédito", "Débito", "Pix").forEach { method ->
-                                FilterChip(selected = selectedPaymentMethod == method, onClick = { selectedPaymentMethod = method }, label = { Text(method) })
+
+                    if (!isFullyPaid || paymentFormat == "Integral") {
+                        if (paymentFormat == "Dividir Conta") {
+                            item {
+                                OutlinedTextField(
+                                    value = amountValue,
+                                    onValueChange = { str -> if (str.all { it.isDigit() }) amountValue = str },
+                                    label = { Text("Valor (Restante: R$ ${"%.2f".format(if(remainingAmount < 0) 0.0 else remainingAmount)})") },
+                                    visualTransformation = CurrencyVisualTransformation(),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                )
+                            }
+                        }
+                        item {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Dinheiro", "Crédito", "Débito", "Pix").forEach { method ->
+                                    FilterChip(selected = selectedPaymentMethod == method, onClick = { selectedPaymentMethod = method }, label = { Text(method) })
+                                }
                             }
                         }
                     }
@@ -356,7 +418,7 @@ fun PaymentDialog(
                 if (currentPayments.isNotEmpty()) {
                     item {
                         HorizontalDivider()
-                        Text("Pagamentos Realizados:", fontWeight = FontWeight.Bold)
+                        Text("Pagamentos Agora:", fontWeight = FontWeight.Bold)
                         currentPayments.forEach {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(it.method)
@@ -365,21 +427,36 @@ fun PaymentDialog(
                         }
                     }
                 }
+
+                if (alreadyPaidAmount > 0) {
+                    item {
+                        HorizontalDivider()
+                        Text("Pagos Anteriormente: R$ ${"%.2f".format(alreadyPaidAmount)}", color = Color.Gray)
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
                     if (paymentFormat == "Integral") {
-                        onConfirm(listOf(SplitPayment(totalOrderPrice, selectedPaymentMethod)))
+                        // Paga apenas o que FALTA (Total - Já Pago)
+                        val amountToPay = if(remainingAmount > 0) remainingAmount else 0.0
+                        if (amountToPay > 0) {
+                            onConfirm(listOf(SplitPayment(amountToPay, selectedPaymentMethod)))
+                        } else {
+                            onDismiss() // Nada a pagar
+                        }
                     } else if (isFullyPaid) {
                         onConfirm(currentPayments)
                     } else {
-                        onAddPayment(SplitPayment(currentAmountInput, selectedPaymentMethod))
-                        amountValue = ""
+                        if (currentAmountInput > 0) {
+                            onAddPayment(SplitPayment(currentAmountInput, selectedPaymentMethod))
+                            amountValue = ""
+                        }
                     }
                 },
-                enabled = paymentFormat == "Integral" || isFullyPaid || (currentAmountInput > 0 && currentAmountInput <= remainingAmount)
+                enabled = paymentFormat == "Integral" || isFullyPaid || (currentAmountInput > 0)
             ) {
                 Text(if (isFullyPaid || paymentFormat == "Integral") "Confirmar" else "Adicionar")
             }
