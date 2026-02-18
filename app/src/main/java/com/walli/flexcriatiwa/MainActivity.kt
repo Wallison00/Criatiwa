@@ -6,6 +6,11 @@ import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -179,11 +184,10 @@ fun AuthorizedApp(
             MainAppLayout(managementViewModel, orderViewModel, kitchenViewModel, authViewModel, navController, isOffline)
         }
 
-        // --- ROTA SEPARADA PARA GESTÃO ---
         composable("management_hub") {
             ManagementHubScreen(
                 managementViewModel,
-                { /* Drawer não usado aqui */ },
+                { },
                 { navController.navigate("product_management") },
                 { navController.navigate("manage_categories") },
                 { navController.navigate("employee_management") }
@@ -271,13 +275,11 @@ fun MainAppLayout(
     val isAdminMode = authViewModel.isUserSuperAdmin
     val hasOrder = !orderViewModel.isOrderEmpty
 
-    // --- LÓGICA DO MENU INFERIOR ---
     var currentScreen by remember { mutableStateOf("Cardápio") }
 
     val bottomNavItems = remember(userRole, hasOrder) {
         val items = mutableListOf<Triple<String, ImageVector, String>>()
 
-        // Itens à Esquerda
         if (userRole in listOf("owner", "waiter", "counter")) {
             items.add(Triple("Cardápio", Icons.Filled.RestaurantMenu, "Cardápio"))
         }
@@ -285,12 +287,10 @@ fun MainAppLayout(
             items.add(Triple("Cozinha", Icons.Default.SoupKitchen, "Cozinha"))
         }
 
-        // Item Central (Pedido) - Só aparece se tiver pedido
         if (hasOrder && userRole in listOf("owner", "waiter", "counter")) {
             items.add(Triple("Pedido", Icons.Filled.ShoppingBag, "Pedido"))
         }
 
-        // Itens à Direita
         if (userRole in listOf("owner", "counter")) {
             items.add(Triple("Balcão", Icons.Filled.Storefront, "Balcão"))
         }
@@ -301,7 +301,6 @@ fun MainAppLayout(
         items
     }
 
-    // Ajusta a tela inicial se o usuário não tiver acesso ao Cardápio
     LaunchedEffect(userRole) {
         if (userRole == "kitchen") currentScreen = "Cozinha"
     }
@@ -311,7 +310,6 @@ fun MainAppLayout(
         drawerContent = {
             ModalDrawerSheet {
                 Spacer(Modifier.height(16.dp))
-                // Cabeçalho do Drawer (Perfil)
                 if (isAdminMode) {
                     Surface(color = Color.Red.copy(alpha = 0.1f), modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -337,7 +335,6 @@ fun MainAppLayout(
                     Divider()
                 }
 
-                // Itens do Drawer (Apenas Administrativo/Sistema)
                 if (userRole == "owner" || isAdminMode) {
                     NavigationDrawerItem(
                         icon = { Icon(Icons.Outlined.Settings, null) },
@@ -370,7 +367,6 @@ fun MainAppLayout(
                         NavigationBarItem(
                             icon = {
                                 if (isOrder) {
-                                    // Destaque para o botão de Pedido
                                     BadgedBox(badge = { Badge { Text("!") } }) {
                                         Icon(icon, null, tint = if(isSelected) MaterialTheme.colorScheme.primary else Color.Red)
                                     }
@@ -385,7 +381,6 @@ fun MainAppLayout(
                             ),
                             onClick = {
                                 if (isOrder) {
-                                    // Navega para o resumo do pedido
                                     navController.navigate("order_summary/null")
                                 } else {
                                     currentScreen = routeKey
@@ -412,12 +407,13 @@ fun MainAppLayout(
 @Composable
 fun MainScreen(
     managementViewModel: ManagementViewModel,
-    isOrderInProgress: Boolean, // Mantido parâmetro mas não usado para FAB
+    isOrderInProgress: Boolean,
     onNavigateToItemDetail: (String) -> Unit,
     onNavigateToOrder: () -> Unit,
     onOpenDrawer: () -> Unit
 ) {
     var searchText by remember { mutableStateOf("") }
+    var isSearchExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val categoryChipListState = rememberLazyListState()
@@ -437,35 +433,94 @@ fun MainScreen(
 
     Scaffold(
         topBar = {
+            // --- TOP APP BAR FIXA ---
             CenterAlignedTopAppBar(
                 title = { Text("Cardápio", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, "Menu") }
+                },
+                actions = {
+                    // Ícone de Lupa para alternar a visibilidade
+                    IconButton(onClick = { isSearchExpanded = !isSearchExpanded }) {
+                        Icon(
+                            imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
+                            contentDescription = if (isSearchExpanded) "Fechar Busca" else "Buscar"
+                        )
+                    }
                 }
             )
-        },
-        // FAB REMOVIDO DAQUI POIS AGORA ESTÁ NO RODAPÉ
+        }
     ) { innerPadding ->
         Column(Modifier.padding(innerPadding).fillMaxSize()) {
-            SearchBar(searchText, { searchText = it }, { searchText = "" })
-            if (categories.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nenhum item encontrado.") }
-            else {
-                LazyRow(state = categoryChipListState, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    itemsIndexed(categories) { index, category -> CategoryChip(text = category.name, isSelected = index == activeCategoryIndex, onClick = { scope.launch { if(index == 0) listState.animateScrollToItem(0) } }) }
-                }
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp)) {
-                    categories.forEach { category ->
-                        stickyHeader { CategoryHeader(category.name) }
-                        item {
-                            LazyVerticalGrid(
-                                columns = GridCells.Adaptive(minSize = 100.dp),
-                                contentPadding = PaddingValues(vertical = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.heightIn(max = 2000.dp)
-                            ) {
-                                items(category.items) { MenuItemCard(item = it, onClick = { onNavigateToItemDetail(it.id) }) }
+
+            // --- CAMPO DE PESQUISA EXPANSÍVEL (ENTRE TÍTULO E CHIPS) ---
+            AnimatedVisibility(
+                visible = isSearchExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                OutlinedTextField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    placeholder = { Text("Buscar produtos...") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedBorderColor = MaterialTheme.colorScheme.outline,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                    ),
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    trailingIcon = {
+                        if (searchText.isNotEmpty()) {
+                            IconButton(onClick = { searchText = "" }) {
+                                Icon(Icons.Default.Close, "Limpar")
                             }
+                        }
+                    }
+                )
+            }
+
+            if (categories.isNotEmpty()) {
+                LazyRow(
+                    state = categoryChipListState,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(categories) { index, category ->
+                        CategoryChip(
+                            text = category.name,
+                            isSelected = index == activeCategoryIndex,
+                            onClick = { scope.launch { if(index == 0) listState.animateScrollToItem(0) } }
+                        )
+                    }
+                }
+            } else {
+                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    Text("Nenhum item encontrado.")
+                }
+            }
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp)
+            ) {
+                categories.forEach { category ->
+                    item {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 100.dp),
+                            contentPadding = PaddingValues(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.heightIn(max = 2000.dp)
+                        ) {
+                            items(category.items) { MenuItemCard(item = it, onClick = { onNavigateToItemDetail(it.id) }) }
                         }
                     }
                 }
@@ -474,7 +529,6 @@ fun MainScreen(
     }
 }
 
-// ... (MenuItemCard, CategoryHeader, CategoryChip, SearchBar permanecem iguais)
 @Composable
 fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
     val decodedBitmap = remember(item.imageUrl) {
