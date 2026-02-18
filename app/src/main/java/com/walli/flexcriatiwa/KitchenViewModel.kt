@@ -7,7 +7,7 @@ import com.google.firebase.Firebase
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch // Importante para rodar o update
+import kotlinx.coroutines.launch
 
 class KitchenViewModel : ViewModel() {
 
@@ -18,18 +18,25 @@ class KitchenViewModel : ViewModel() {
 
     private val _allActiveOrders = MutableStateFlow<List<KitchenOrder>>(emptyList())
 
+    // Filtra pedidos para a tela da cozinha (Apenas PREPARING)
     val kitchenOrders: StateFlow<List<KitchenOrder>> = _allActiveOrders.map { orders ->
-        orders.filter { it.status == OrderStatus.PREPARING }.sortedBy { it.timestamp }
+        orders.filter { it.status == OrderStatus.PREPARING }
+            .sortedBy { it.timestamp } // Ordena por chegada (FIFO)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Filtra pedidos prontos
     val readyOrders: StateFlow<List<KitchenOrder>> = _allActiveOrders.map { orders ->
         orders.filter { it.status == OrderStatus.READY }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Mesas ocupadas (qualquer pedido não finalizado)
     val occupiedTables: StateFlow<Set<Int>> = _allActiveOrders.map { orders ->
-        orders.filter { it.status != OrderStatus.FINISHED && it.destinationType == "Local" }.flatMap { it.tableSelection }.toSet()
+        orders.filter { it.status != OrderStatus.FINISHED && it.destinationType == "Local" }
+            .flatMap { it.tableSelection }
+            .toSet()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
+    // Agrupa pedidos por mesa para a tela do garçom
     val ordersByTable: StateFlow<Map<Int, List<KitchenOrder>>> = _allActiveOrders.map { orders ->
         orders.filter { it.destinationType == "Local" && it.status != OrderStatus.FINISHED }
             .flatMap { order -> order.tableSelection.map { tableNum -> tableNum to order } }
@@ -50,7 +57,7 @@ class KitchenViewModel : ViewModel() {
                             val items = (doc.get("items") as? List<Map<String, Any>>)?.map { mapToOrderItem(it) } ?: emptyList()
                             val tables = (doc.get("tableSelection") as? List<Number>)?.map { it.toInt() }?.toSet() ?: emptySet()
                             val payments = (doc.get("payments") as? List<Map<String, Any>>)?.map { SplitPayment((it["amount"] as? Number)?.toDouble() ?: 0.0, it["method"] as? String ?: "") } ?: emptyList()
-                            val closingNote = doc.getString("closingNote") // Lendo a justificativa
+                            val closingNote = doc.getString("closingNote")
 
                             KitchenOrder(
                                 id = (doc.get("timestamp") as? Number)?.toLong() ?: 0L,
@@ -81,16 +88,18 @@ class KitchenViewModel : ViewModel() {
         db.collection("companies").document(companyId).collection("orders").add(data)
     }
 
+    // --- CORREÇÃO PRINCIPAL AQUI ---
     fun addItemsToTableOrder(tableNumber: Int, newItems: List<OrderItem>) {
-        val companyId = currentCompanyId ?: return
-        val existingOrder = _allActiveOrders.value.find { it.tableSelection.contains(tableNumber) && it.status != OrderStatus.FINISHED }
-        if (existingOrder != null) {
-            val allItems = existingOrder.items.map { orderItemToMap(it) } + newItems.map { orderItemToMap(it) }
-            db.collection("companies").document(companyId).collection("orders").document(existingOrder.firebaseId)
-                .update(mapOf("items" to allItems, "status" to OrderStatus.PREPARING.name))
-        } else {
-            submitNewOrder(newItems, "Local", setOf(tableNumber), "Mesa $tableNumber", emptyList())
-        }
+        // ANTES: Procurava pedido existente e juntava (Update).
+        // AGORA: Cria SEMPRE um novo pedido (Add), garantindo fila correta na cozinha.
+
+        submitNewOrder(
+            items = newItems,
+            destinationType = "Local",
+            tableSelection = setOf(tableNumber),
+            clientName = "Mesa $tableNumber",
+            payments = emptyList() // Novos itens ainda não foram pagos
+        )
     }
 
     fun updateOrderStatus(numericId: Long, newStatus: OrderStatus) {
@@ -99,24 +108,26 @@ class KitchenViewModel : ViewModel() {
         db.collection("companies").document(companyId).collection("orders").document(order.firebaseId).update("status", newStatus.name)
     }
 
-    // --- NOVA FUNÇÃO PARA FECHAR CONTA COM PAGAMENTOS E NOTA ---
     fun closeBillWithDetails(orders: List<KitchenOrder>, newPayments: List<SplitPayment>, note: String?) {
         val companyId = currentCompanyId ?: return
 
         viewModelScope.launch {
+            // Atualiza TODOS os pedidos ativos daquela mesa
             orders.forEach { order ->
-                if (order.status == OrderStatus.DELIVERED || order.status == OrderStatus.READY) {
+                // Só altera status se não estiver já finalizado (embora o filtro já cuide disso)
+                if (order.status != OrderStatus.FINISHED) {
                     val updateData = mutableMapOf<String, Any>(
                         "status" to OrderStatus.NEEDS_CLEANING.name
                     )
 
-                    // Se houver nota, adiciona (apenas no primeiro pedido para não duplicar se houver merge, ou em todos)
                     if (!note.isNullOrBlank()) {
                         updateData["closingNote"] = note
                     }
 
-                    // Se houver novos pagamentos, adiciona à lista existente
                     if (newPayments.isNotEmpty()) {
+                        // Atenção: Isso replica o pagamento em todos os pedidos da mesa.
+                        // Visualmente funciona para o histórico, mas idealmente pagamentos seriam uma coleção separada.
+                        // Para o MVP atual, isso garante que ao abrir qualquer um dos pedidos antigos, conste como pago.
                         val currentPaymentsMaps = order.payments.map { mapOf("amount" to it.amount, "method" to it.method) }
                         val newPaymentsMaps = newPayments.map { mapOf("amount" to it.amount, "method" to it.method) }
                         updateData["payments"] = currentPaymentsMaps + newPaymentsMaps
