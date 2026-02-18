@@ -90,8 +90,9 @@ class KitchenViewModel : ViewModel() {
 
     // --- CORREÇÃO PRINCIPAL AQUI ---
     fun addItemsToTableOrder(tableNumber: Int, newItems: List<OrderItem>) {
-        // Removemos a lógica de buscar 'existingOrder' para não furar fila na cozinha.
-        // Cada envio da mesa gera um ticket novo.
+        // REMOVA A LÓGICA DE "IF (EXISTINGORDER != NULL)"
+        // MANTENHA APENAS A CRIAÇÃO DE UM NOVO PEDIDO PARA GARANTIR A FILA CORRETA (FIFO)
+
         submitNewOrder(
             items = newItems,
             destinationType = "Local",
