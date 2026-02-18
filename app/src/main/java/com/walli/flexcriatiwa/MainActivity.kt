@@ -426,64 +426,69 @@ fun MainScreen(
         }
     }
 
-    val firstVisibleItemIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
-    val activeCategoryIndex = remember(firstVisibleItemIndex, categories) {
-        if (categories.isEmpty()) -1 else 0.coerceAtLeast(categories.indices.find { true } ?: 0)
-    }
+    // --- CORREÇÃO 1: VÍNCULO DIRETO COM O SCROLL ---
+    // Agora o chip selecionado reflete diretamente o primeiro item visível na tela
+    val activeCategoryIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
 
     Scaffold(
         topBar = {
-            // --- TOP APP BAR FIXA ---
             CenterAlignedTopAppBar(
-                title = { Text("Cardápio", fontWeight = FontWeight.Bold) },
+                title = {
+                    if (!isSearchExpanded) {
+                        Text("Cardápio", fontWeight = FontWeight.Bold)
+                    }
+                },
                 navigationIcon = {
-                    IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, "Menu") }
+                    if (isSearchExpanded) {
+                        IconButton(onClick = { isSearchExpanded = false; searchText = "" }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Fechar Busca")
+                        }
+                    } else {
+                        IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, "Menu") }
+                    }
                 },
                 actions = {
-                    // Ícone de Lupa para alternar a visibilidade
-                    IconButton(onClick = { isSearchExpanded = !isSearchExpanded }) {
-                        Icon(
-                            imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
-                            contentDescription = if (isSearchExpanded) "Fechar Busca" else "Buscar"
+                    AnimatedVisibility(
+                        visible = isSearchExpanded,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        OutlinedTextField(
+                            value = searchText,
+                            onValueChange = { searchText = it },
+                            placeholder = { Text("Buscar produtos...") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(24.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedBorderColor = MaterialTheme.colorScheme.outline,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                            ),
+                            leadingIcon = { Icon(Icons.Default.Search, null) },
+                            trailingIcon = {
+                                if (searchText.isNotEmpty()) {
+                                    IconButton(onClick = { searchText = "" }) {
+                                        Icon(Icons.Default.Close, "Limpar")
+                                    }
+                                }
+                            }
                         )
+                    }
+
+                    if (!isSearchExpanded) {
+                        IconButton(onClick = { isSearchExpanded = true }) {
+                            Icon(Icons.Default.Search, "Buscar")
+                        }
                     }
                 }
             )
         }
     ) { innerPadding ->
         Column(Modifier.padding(innerPadding).fillMaxSize()) {
-
-            // --- CAMPO DE PESQUISA EXPANSÍVEL (ENTRE TÍTULO E CHIPS) ---
-            AnimatedVisibility(
-                visible = isSearchExpanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                OutlinedTextField(
-                    value = searchText,
-                    onValueChange = { searchText = it },
-                    placeholder = { Text("Buscar produtos...") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(24.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        focusedBorderColor = MaterialTheme.colorScheme.outline,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                    ),
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    trailingIcon = {
-                        if (searchText.isNotEmpty()) {
-                            IconButton(onClick = { searchText = "" }) {
-                                Icon(Icons.Default.Close, "Limpar")
-                            }
-                        }
-                    }
-                )
-            }
 
             if (categories.isNotEmpty()) {
                 LazyRow(
@@ -496,7 +501,11 @@ fun MainScreen(
                         CategoryChip(
                             text = category.name,
                             isSelected = index == activeCategoryIndex,
-                            onClick = { scope.launch { if(index == 0) listState.animateScrollToItem(0) } }
+                            // --- CORREÇÃO 2: CLIQUE PARA ROLAR CORRETO ---
+                            // Clica no chip -> Rola para o índice CORRETO da categoria
+                            onClick = {
+                                scope.launch { listState.animateScrollToItem(index) }
+                            }
                         )
                     }
                 }
@@ -604,18 +613,6 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
 }
 
 @Composable
-fun CategoryHeader(categoryName: String) {
-    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = categoryName,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(vertical = 16.dp)
-        )
-    }
-}
-
-@Composable
 fun CategoryChip(text: String, isSelected: Boolean, onClick: () -> Unit) {
     val bgColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
@@ -632,25 +629,4 @@ fun CategoryChip(text: String, isSelected: Boolean, onClick: () -> Unit) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
     }
-}
-
-@Composable
-fun SearchBar(searchText: String, onSearchChange: (String) -> Unit, onClearClick: () -> Unit) {
-    OutlinedTextField(
-        value = searchText,
-        onValueChange = onSearchChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        placeholder = { Text("Buscar produtos...") },
-        leadingIcon = { Icon(Icons.Default.Search, null) },
-        trailingIcon = {
-            if (searchText.isNotEmpty()) {
-                IconButton(onClick = onClearClick) { Icon(Icons.Default.Close, null) }
-            }
-        },
-        shape = RoundedCornerShape(24.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-            focusedContainerColor = MaterialTheme.colorScheme.surface
-        )
-    )
 }
