@@ -201,21 +201,46 @@ fun AuthorizedApp(
             }
         }
 
+        // --- ROTA DE RESUMO DO PEDIDO CORRIGIDA ---
         composable("order_summary/{tableNumber}?") { backStackEntry ->
             val tableNumberStr = backStackEntry.arguments?.getString("tableNumber")
-            val tableNumber = if (tableNumberStr == "null") null else tableNumberStr?.toIntOrNull()
-            val existingItems = if (tableNumber != null) kitchenViewModel.ordersByTable.value[tableNumber]?.flatMap { it.items } ?: emptyList() else emptyList()
+            val tableNumberArg = if (tableNumberStr == "null") null else tableNumberStr?.toIntOrNull()
 
-            LaunchedEffect(tableNumber) {
-                orderViewModel.clearAll()
-                val order = kitchenViewModel.ordersByTable.value[tableNumber]?.firstOrNull()
-                if (order != null) orderViewModel.updateDestination(order.destinationType ?: "Local", order.tableSelection, order.clientName ?: "")
-                else if (tableNumber != null) orderViewModel.updateDestination("Local", setOf(tableNumber), "")
+            // 1. Lógica Inteligente para Contexto da Mesa
+            // Se veio um argumento (clique na mesa), usa ele. Se veio null (clique no FAB), usa o que já está na memória.
+            val activeTableId = tableNumberArg ?: orderViewModel.tableSelection.firstOrNull()
+
+            // 2. Observa o banco de dados em tempo real
+            val ordersByTable by kitchenViewModel.ordersByTable.collectAsState()
+
+            // 3. Busca itens existentes baseado na mesa ativa identificada
+            val existingItems = remember(ordersByTable, activeTableId) {
+                if (activeTableId != null) {
+                    ordersByTable[activeTableId]?.flatMap { it.items } ?: emptyList()
+                } else {
+                    emptyList()
+                }
+            }
+
+            LaunchedEffect(tableNumberArg) {
+                // SÓ LIMPA E REINICIA se vier explicitamente um número de mesa (novo fluxo)
+                if (tableNumberArg != null) {
+                    orderViewModel.clearAll()
+                    val currentOrders = kitchenViewModel.ordersByTable.value
+                    val order = currentOrders[tableNumberArg]?.firstOrNull()
+
+                    if (order != null) {
+                        orderViewModel.updateDestination(order.destinationType ?: "Local", order.tableSelection, order.clientName ?: "")
+                    } else {
+                        orderViewModel.updateDestination("Local", setOf(tableNumberArg), "")
+                    }
+                }
+                // Se tableNumberArg for null (veio do FAB), NÃO fazemos nada aqui, preservando o carrinho atual.
             }
 
             OrderScreen(orderViewModel, kitchenViewModel, existingItems, { orderViewModel.clearAll(); navController.popBackStack() }, { navController.navigate("main_layout") }, { orderViewModel.loadItemForEdit(it); navController.navigate("detail/${it.menuItem.id}") },
                 {
-                    if (tableNumber != null) kitchenViewModel.addItemsToTableOrder(tableNumber, orderViewModel.currentCartItems)
+                    if (activeTableId != null) kitchenViewModel.addItemsToTableOrder(activeTableId, orderViewModel.currentCartItems)
                     else kitchenViewModel.submitNewOrder(orderViewModel.currentCartItems, orderViewModel.destinationType, orderViewModel.tableSelection, orderViewModel.clientName, orderViewModel.payments)
                     orderViewModel.clearAll(); navController.navigate("main_layout") { popUpTo("main_layout") { inclusive = true } }
                 }, { navController.popBackStack() })
@@ -454,13 +479,12 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
                     }
                 }
 
-                // --- MUDANÇA 1: CÓDIGO NO TOPO ESQUERDO ---
                 if (item.code > 0) {
                     Text(
                         text = "#%03d".format(item.code),
                         color = Color.White,
                         modifier = Modifier
-                            .align(Alignment.TopStart) // Mudado para TopStart
+                            .align(Alignment.TopStart)
                             .padding(8.dp)
                             .background(Color.Black.copy(alpha = 0.6f), CircleShape)
                             .padding(horizontal = 4.dp, vertical = 2.dp),
@@ -469,21 +493,19 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
                     )
                 }
 
-                // --- MUDANÇA 2: PREÇO NO FIM DIREITO DA IMAGEM ---
                 Text(
                     text = "R$ %.2f".format(item.price),
                     color = Color.White,
                     modifier = Modifier
-                        .align(Alignment.BottomEnd) // Posicionado aqui
+                        .align(Alignment.BottomEnd)
                         .padding(8.dp)
-                        .background(Color.Black.copy(alpha = 0.6f), CircleShape) // Com fundo para destaque
+                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
         }
-        // --- MUDANÇA 3: APENAS O NOME ABAIXO ---
         Text(
             text = item.name,
             style = MaterialTheme.typography.bodyMedium,
@@ -492,7 +514,6 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
             minLines = 2,
             overflow = TextOverflow.Ellipsis
         )
-        // O preço foi removido daqui
     }
 }
 
