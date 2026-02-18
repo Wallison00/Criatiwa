@@ -1,13 +1,17 @@
 package com.walli.flexcriatiwa
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Add
@@ -22,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.math.BigDecimal
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,7 +42,7 @@ fun OrderScreen(
 ) {
     val cartItems = orderViewModel.currentCartItems
     val destinationType = orderViewModel.destinationType
-    val newPayments = orderViewModel.payments // Pagamentos adicionados AGORA nesta tela
+    val newPayments = orderViewModel.payments
     val occupiedTables by kitchenViewModel.occupiedTables.collectAsState(initial = emptySet())
     val ordersByTable by kitchenViewModel.ordersByTable.collectAsState(initial = emptyMap())
 
@@ -52,15 +57,15 @@ fun OrderScreen(
     val existingPaymentsValue = activeOrdersForTable.sumOf { order -> order.payments.sumOf { it.amount } }
     val newPaymentsValue = newPayments.sumOf { it.amount }
     val totalPaid = existingPaymentsValue + newPaymentsValue
-    val remainingAmount = totalPrice - totalPaid
-    val isFullyPaid = remainingAmount <= 0.01 // Margem de erro float
+    val remainingAmount = (totalPrice.toBigDecimal() - totalPaid.toBigDecimal()).toDouble()
+    val isFullyPaid = remainingAmount <= 0.01
 
     val canCloseBill = activeOrdersForTable.any { it.status == OrderStatus.DELIVERED }
 
     var showPaymentDialog by remember { mutableStateOf(false) }
     var showDestinationDialog by remember { mutableStateOf(false) }
     var showCancellationDialog by remember { mutableStateOf(false) }
-    var showJustificationDialog by remember { mutableStateOf(false) } // Dialog da justificativa
+    var showJustificationDialog by remember { mutableStateOf(false) }
 
     val canSendOrder = cartItems.isNotEmpty() && destinationType != null
 
@@ -75,7 +80,7 @@ fun OrderScreen(
             title = { Text("Justificar Pendência") },
             text = {
                 Column {
-                    Text("O valor total não foi pago. Restante: R$ ${"%.2f".format(remainingAmount)}", color = Color.Red)
+                    Text("Falta pagar: R$ ${"%.2f".format(if(remainingAmount < 0) 0.0 else remainingAmount)}", color = Color.Red, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = justificationText,
@@ -93,9 +98,8 @@ fun OrderScreen(
                         if (justificationText.isBlank()) {
                             isError = true
                         } else {
-                            // Fecha com justificativa
                             kitchenViewModel.closeBillWithDetails(activeOrdersForTable, newPayments, justificationText)
-                            orderViewModel.clearAll() // Limpa pagamentos locais
+                            orderViewModel.clearAll()
                             showJustificationDialog = false
                             onNavigateBack()
                         }
@@ -126,8 +130,8 @@ fun OrderScreen(
     if (showPaymentDialog) {
         PaymentDialog(
             totalOrderPrice = totalPrice,
-            currentPayments = newPayments, // Mostra apenas os novos pagamentos para editar
-            alreadyPaidAmount = existingPaymentsValue, // Passa o que já foi pago antes
+            currentPayments = newPayments,
+            alreadyPaidAmount = existingPaymentsValue,
             onDismiss = { showPaymentDialog = false },
             onConfirm = { updatedPayments ->
                 orderViewModel.updatePayments(updatedPayments)
@@ -180,16 +184,14 @@ fun OrderScreen(
                             Button(
                                 onClick = {
                                     if (isFullyPaid) {
-                                        // Fecha direto se estiver tudo pago
                                         kitchenViewModel.closeBillWithDetails(activeOrdersForTable, newPayments, null)
                                         orderViewModel.clearAll()
                                         onNavigateBack()
                                     } else {
-                                        // Abre diálogo de justificativa
                                         showJustificationDialog = true
                                     }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = if (isFullyPaid) Color(0xFF1976D2) else Color(0xFFE91E63)) // Azul se pago, Rosa se pendente
+                                colors = ButtonDefaults.buttonColors(containerColor = if (isFullyPaid) Color(0xFF1976D2) else Color(0xFFE91E63))
                             ) {
                                 Text("Fechar Conta")
                                 Spacer(Modifier.width(4.dp))
@@ -205,17 +207,17 @@ fun OrderScreen(
 
             if (existingItems.isNotEmpty()) {
                 item { Text("Na Mesa", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) }
-                items(existingItems.size) { i -> ExistingOrderItemCard(existingItems[i]) }
+                items(existingItems) { ExistingOrderItemCard(it) }
                 item { HorizontalDivider() }
             }
 
             if (cartItems.isNotEmpty()) {
                 item { Text("Novos Itens", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
-                items(cartItems.size) { i ->
+                items(cartItems) { item ->
                     OrderItemCard(
-                        orderItem = cartItems[i],
-                        onQuantityChange = { qtd -> if (qtd <= 0) orderViewModel.removeItem(cartItems[i]) else orderViewModel.upsertItem(cartItems[i].copy(quantity = qtd), cartItems[i]) },
-                        onEdit = { onEditItem(cartItems[i]) }
+                        orderItem = item,
+                        onQuantityChange = { qtd -> if (qtd <= 0) orderViewModel.removeItem(item) else orderViewModel.upsertItem(item.copy(quantity = qtd), item) },
+                        onEdit = { onEditItem(item) }
                     )
                 }
             }
@@ -236,7 +238,6 @@ fun OrderScreen(
                 )
             }
             item {
-                // Mostra total pago (Antigo + Novo)
                 SummarySectionCard(
                     title = "Pagamento:",
                     info = if (totalPaid > 0) "R$ ${"%.2f".format(totalPaid)}" else "Pendente",
@@ -247,8 +248,179 @@ fun OrderScreen(
     }
 }
 
-// --- COMPONENTES AUXILIARES ---
+// --- MODAL DE PAGAMENTO REAJUSTADO ---
+@Composable
+fun PaymentDialog(
+    totalOrderPrice: Double,
+    currentPayments: List<SplitPayment>,
+    alreadyPaidAmount: Double,
+    onDismiss: () -> Unit,
+    onConfirm: (List<SplitPayment>) -> Unit,
+    onAddPayment: (SplitPayment) -> Unit,
+    onClearPayments: () -> Unit
+) {
+    var paymentFormat by remember { mutableStateOf(if (currentPayments.isNotEmpty()) "Dividir Conta" else "Integral") }
+    var selectedPaymentMethod by remember { mutableStateOf("Dinheiro") }
+    var amountValue by remember { mutableStateOf("") }
 
+    val totalPaidCurrentSession = currentPayments.sumOf { it.amount }
+    val totalPaidGlobally = alreadyPaidAmount + totalPaidCurrentSession
+
+    // Calcula o restante (evita negativo)
+    val remainingAmount = (totalOrderPrice.toBigDecimal() - totalPaidGlobally.toBigDecimal()).max(BigDecimal.ZERO).toDouble()
+    val currentAmountInput = (amountValue.toLongOrNull() ?: 0L) / 100.0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pagamento") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Cabeçalho com Resumo
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Column(Modifier.padding(12.dp).fillMaxWidth()) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Total do Pedido:")
+                            Text("R$ ${"%.2f".format(totalOrderPrice)}", fontWeight = FontWeight.Bold)
+                        }
+                        if(alreadyPaidAmount > 0) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Já Pago (Outros):", style = MaterialTheme.typography.bodySmall)
+                                Text("R$ ${"%.2f".format(alreadyPaidAmount)}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        Divider(Modifier.padding(vertical = 4.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Falta Pagar:", fontWeight = FontWeight.Bold)
+                            Text("R$ ${"%.2f".format(remainingAmount)}", fontWeight = FontWeight.Bold, color = if(remainingAmount > 0.01) Color.Red else Color(0xFF4CAF50))
+                        }
+                    }
+                }
+
+                // Seleção de Modo (Se ainda houver dívida)
+                if (alreadyPaidAmount < totalOrderPrice - 0.01) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        FilterChip(
+                            selected = paymentFormat == "Integral",
+                            onClick = { paymentFormat = "Integral"; onClearPayments() },
+                            label = { Text("Integral") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(
+                            selected = paymentFormat == "Dividir Conta",
+                            onClick = { paymentFormat = "Dividir Conta" },
+                            label = { Text("Dividir") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                } else {
+                    Text("Conta totalmente paga!", color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterHorizontally))
+                }
+
+                // Conteúdo dos Modos
+                if (paymentFormat == "Integral" && remainingAmount > 0.01) {
+                    Text("Pagamento restante completo:")
+                    Text("R$ ${"%.2f".format(remainingAmount)}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    PaymentMethodSelector(selectedPaymentMethod) { selectedPaymentMethod = it }
+                }
+                else if (paymentFormat == "Dividir Conta") {
+                    // Campo de Entrada + Botão Adicionar
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = amountValue,
+                            onValueChange = { str -> if (str.all { it.isDigit() }) amountValue = str },
+                            label = { Text("Valor a pagar") },
+                            visualTransformation = CurrencyVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        FilledIconButton(
+                            onClick = {
+                                if (currentAmountInput > 0) {
+                                    onAddPayment(SplitPayment(currentAmountInput, selectedPaymentMethod))
+                                    amountValue = ""
+                                }
+                            },
+                            enabled = currentAmountInput > 0
+                        ) {
+                            Icon(Icons.Outlined.Add, "Adicionar")
+                        }
+                    }
+
+                    PaymentMethodSelector(selectedPaymentMethod) { selectedPaymentMethod = it }
+
+                    // Lista de Pagamentos Adicionados Agora
+                    if (currentPayments.isNotEmpty()) {
+                        Text("Pagamentos adicionados:", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                        Column {
+                            currentPayments.forEach { payment ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(payment.method)
+                                    Text("R$ ${"%.2f".format(payment.amount)}", fontWeight = FontWeight.Bold)
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (paymentFormat == "Integral" && remainingAmount > 0.01) {
+                Button(
+                    onClick = {
+                        onConfirm(listOf(SplitPayment(remainingAmount, selectedPaymentMethod)))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Confirmar Pagamento Total")
+                }
+            } else {
+                // No modo dividir, o botão principal apenas fecha o modal, pois os itens já foram adicionados
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
+                ) {
+                    Text("Concluir / Voltar")
+                }
+            }
+        },
+        dismissButton = {
+            // Em modo dividir, "Cancelar" não faz sentido se já adicionou, então removemos ou deixamos apenas fechar
+            if (paymentFormat == "Integral") {
+                TextButton(onClick = onDismiss) { Text("Cancelar") }
+            }
+        }
+    )
+}
+
+@Composable
+fun PaymentMethodSelector(selected: String, onSelect: (String) -> Unit) {
+    val methods = listOf("Dinheiro", "Crédito", "Débito", "Pix")
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState())
+    ) {
+        methods.forEach { method ->
+            FilterChip(
+                selected = selected == method,
+                onClick = { onSelect(method) },
+                label = { Text(method) }
+            )
+        }
+    }
+}
+
+// --- MANTIDO IGUAL ---
 @Composable
 fun ExistingOrderItemCard(orderItem: OrderItem) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)), modifier = Modifier.fillMaxWidth()) {
@@ -351,117 +523,6 @@ fun SummarySectionCard(title: String, info: String, onEditClick: () -> Unit) {
             Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary)
         }
     }
-}
-
-@Composable
-fun PaymentDialog(
-    totalOrderPrice: Double,
-    currentPayments: List<SplitPayment>,
-    alreadyPaidAmount: Double, // Novo parâmetro para saber o que já foi pago no DB
-    onDismiss: () -> Unit,
-    onConfirm: (List<SplitPayment>) -> Unit,
-    onAddPayment: (SplitPayment) -> Unit,
-    onClearPayments: () -> Unit
-) {
-    var paymentFormat by remember { mutableStateOf(if (currentPayments.isNotEmpty()) "Dividir Conta" else "Integral") }
-    var selectedPaymentMethod by remember { mutableStateOf("Dinheiro") }
-    var amountValue by remember { mutableStateOf("") }
-
-    val totalPaidCurrentSession = currentPayments.sumOf { it.amount }
-    val totalPaidGlobally = alreadyPaidAmount + totalPaidCurrentSession
-
-    val remainingAmount = (totalOrderPrice.toBigDecimal() - totalPaidGlobally.toBigDecimal()).toDouble()
-
-    val currentAmountInput = (amountValue.toLongOrNull() ?: 0L) / 100.0
-    val isFullyPaid = remainingAmount <= 0.01 // Margem segura
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Pagamento") },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                // Se já estiver pago ou parcialmente pago, não mostra opção "Integral" confusa
-                // Se já pagou tudo no banco, mostra aviso
-                if (alreadyPaidAmount >= totalOrderPrice) {
-                    item { Text("Este pedido já foi totalmente pago.", color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold) }
-                } else {
-                    item {
-                        Row {
-                            FilterChip(selected = paymentFormat == "Integral", onClick = { paymentFormat = "Integral"; onClearPayments() }, label = { Text("Integral") })
-                            Spacer(Modifier.width(8.dp))
-                            FilterChip(selected = paymentFormat == "Dividir Conta", onClick = { paymentFormat = "Dividir Conta" }, label = { Text("Dividir") })
-                        }
-                    }
-
-                    if (!isFullyPaid || paymentFormat == "Integral") {
-                        if (paymentFormat == "Dividir Conta") {
-                            item {
-                                OutlinedTextField(
-                                    value = amountValue,
-                                    onValueChange = { str -> if (str.all { it.isDigit() }) amountValue = str },
-                                    label = { Text("Valor (Restante: R$ ${"%.2f".format(if(remainingAmount < 0) 0.0 else remainingAmount)})") },
-                                    visualTransformation = CurrencyVisualTransformation(),
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                                )
-                            }
-                        }
-                        item {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("Dinheiro", "Crédito", "Débito", "Pix").forEach { method ->
-                                    FilterChip(selected = selectedPaymentMethod == method, onClick = { selectedPaymentMethod = method }, label = { Text(method) })
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (currentPayments.isNotEmpty()) {
-                    item {
-                        HorizontalDivider()
-                        Text("Pagamentos Agora:", fontWeight = FontWeight.Bold)
-                        currentPayments.forEach {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(it.method)
-                                Text("R$ ${"%.2f".format(it.amount)}")
-                            }
-                        }
-                    }
-                }
-
-                if (alreadyPaidAmount > 0) {
-                    item {
-                        HorizontalDivider()
-                        Text("Pagos Anteriormente: R$ ${"%.2f".format(alreadyPaidAmount)}", color = Color.Gray)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (paymentFormat == "Integral") {
-                        // Paga apenas o que FALTA (Total - Já Pago)
-                        val amountToPay = if(remainingAmount > 0) remainingAmount else 0.0
-                        if (amountToPay > 0) {
-                            onConfirm(listOf(SplitPayment(amountToPay, selectedPaymentMethod)))
-                        } else {
-                            onDismiss() // Nada a pagar
-                        }
-                    } else if (isFullyPaid) {
-                        onConfirm(currentPayments)
-                    } else {
-                        if (currentAmountInput > 0) {
-                            onAddPayment(SplitPayment(currentAmountInput, selectedPaymentMethod))
-                            amountValue = ""
-                        }
-                    }
-                },
-                enabled = paymentFormat == "Integral" || isFullyPaid || (currentAmountInput > 0)
-            ) {
-                Text(if (isFullyPaid || paymentFormat == "Integral") "Confirmar" else "Adicionar")
-            }
-        }
-    )
 }
 
 @Composable
