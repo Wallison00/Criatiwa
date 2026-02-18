@@ -34,7 +34,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow // <--- IMPORTAÇÃO NOVA
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -401,7 +401,6 @@ fun MainScreen(
                     categories.forEach { category ->
                         stickyHeader { CategoryHeader(category.name) }
                         item {
-                            // Grid adaptativo com tamanho mínimo calibrado para 3 colunas em celular
                             LazyVerticalGrid(
                                 columns = GridCells.Adaptive(minSize = 100.dp),
                                 contentPadding = PaddingValues(vertical = 8.dp),
@@ -455,12 +454,13 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
                     }
                 }
 
+                // --- MUDANÇA 1: CÓDIGO NO TOPO ESQUERDO ---
                 if (item.code > 0) {
                     Text(
                         text = "#%03d".format(item.code),
                         color = Color.White,
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
+                            .align(Alignment.TopStart) // Mudado para TopStart
                             .padding(8.dp)
                             .background(Color.Black.copy(alpha = 0.6f), CircleShape)
                             .padding(horizontal = 4.dp, vertical = 2.dp),
@@ -468,24 +468,31 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
                         fontWeight = FontWeight.Bold
                     )
                 }
+
+                // --- MUDANÇA 2: PREÇO NO FIM DIREITO DA IMAGEM ---
+                Text(
+                    text = "R$ %.2f".format(item.price),
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd) // Posicionado aqui
+                        .padding(8.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), CircleShape) // Com fundo para destaque
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
-        Column {
-            // --- NOME DO ITEM COM ALTURA PADRÃO ---
-            Text(
-                text = item.name,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2, // Limite de 2 linhas
-                minLines = 2, // Garante que ocupe sempre o espaço de 2 linhas (padrão)
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "R$ %.2f".format(item.price),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray
-            )
-        }
+        // --- MUDANÇA 3: APENAS O NOME ABAIXO ---
+        Text(
+            text = item.name,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2,
+            minLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        // O preço foi removido daqui
     }
 }
 
