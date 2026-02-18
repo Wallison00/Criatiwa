@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -177,6 +178,18 @@ fun AuthorizedApp(
         composable("main_layout") {
             MainAppLayout(managementViewModel, orderViewModel, kitchenViewModel, authViewModel, navController, isOffline)
         }
+
+        // --- ROTA SEPARADA PARA GESTÃO ---
+        composable("management_hub") {
+            ManagementHubScreen(
+                managementViewModel,
+                { /* Drawer não usado aqui */ },
+                { navController.navigate("product_management") },
+                { navController.navigate("manage_categories") },
+                { navController.navigate("employee_management") }
+            )
+        }
+
         composable("product_management") {
             ProductManagementScreen(managementViewModel, { navController.popBackStack() }, { managementViewModel.clearEditState(); navController.navigate("add_edit_product") }, { managementViewModel.loadProductForEdit(it); navController.navigate("add_edit_product") })
         }
@@ -201,19 +214,13 @@ fun AuthorizedApp(
             }
         }
 
-        // --- ROTA DE RESUMO DO PEDIDO CORRIGIDA ---
         composable("order_summary/{tableNumber}?") { backStackEntry ->
             val tableNumberStr = backStackEntry.arguments?.getString("tableNumber")
             val tableNumberArg = if (tableNumberStr == "null") null else tableNumberStr?.toIntOrNull()
 
-            // 1. Lógica Inteligente para Contexto da Mesa
-            // Se veio um argumento (clique na mesa), usa ele. Se veio null (clique no FAB), usa o que já está na memória.
             val activeTableId = tableNumberArg ?: orderViewModel.tableSelection.firstOrNull()
-
-            // 2. Observa o banco de dados em tempo real
             val ordersByTable by kitchenViewModel.ordersByTable.collectAsState()
 
-            // 3. Busca itens existentes baseado na mesa ativa identificada
             val existingItems = remember(ordersByTable, activeTableId) {
                 if (activeTableId != null) {
                     ordersByTable[activeTableId]?.flatMap { it.items } ?: emptyList()
@@ -223,7 +230,6 @@ fun AuthorizedApp(
             }
 
             LaunchedEffect(tableNumberArg) {
-                // SÓ LIMPA E REINICIA se vier explicitamente um número de mesa (novo fluxo)
                 if (tableNumberArg != null) {
                     orderViewModel.clearAll()
                     val currentOrders = kitchenViewModel.ordersByTable.value
@@ -235,7 +241,6 @@ fun AuthorizedApp(
                         orderViewModel.updateDestination("Local", setOf(tableNumberArg), "")
                     }
                 }
-                // Se tableNumberArg for null (veio do FAB), NÃO fazemos nada aqui, preservando o carrinho atual.
             }
 
             OrderScreen(orderViewModel, kitchenViewModel, existingItems, { orderViewModel.clearAll(); navController.popBackStack() }, { navController.navigate("main_layout") }, { orderViewModel.loadItemForEdit(it); navController.navigate("detail/${it.menuItem.id}") },
@@ -260,126 +265,145 @@ fun MainAppLayout(
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    var selectedIndex by remember { mutableIntStateOf(0) }
 
     val userProfile = authViewModel.currentUserProfile
     val userRole = userProfile?.role ?: "employee"
     val isAdminMode = authViewModel.isUserSuperAdmin
+    val hasOrder = !orderViewModel.isOrderEmpty
 
-    val allItems = listOf(
-        Triple("Cardápio", Icons.Filled.RestaurantMenu, "Cardápio"),
-        Triple("Cozinha", Icons.Default.SoupKitchen, "Cozinha"),
-        Triple("Balcão", Icons.Filled.Storefront, "Balcão"),
-        Triple("Mesa", Icons.Filled.TableRestaurant, "Mesa"),
-        Triple("Gestão", Icons.Outlined.Settings, "Gestão")
-    )
+    // --- LÓGICA DO MENU INFERIOR ---
+    var currentScreen by remember { mutableStateOf("Cardápio") }
 
-    val visibleItems = remember(userRole) {
-        when (userRole) {
-            "owner" -> allItems
-            "waiter" -> allItems.filter { it.first in listOf("Cardápio", "Mesa") }
-            "kitchen" -> allItems.filter { it.first == "Cozinha" }
-            "counter" -> allItems.filter { it.first in listOf("Balcão", "Cardápio") }
-            else -> emptyList()
+    val bottomNavItems = remember(userRole, hasOrder) {
+        val items = mutableListOf<Triple<String, ImageVector, String>>()
+
+        // Itens à Esquerda
+        if (userRole in listOf("owner", "waiter", "counter")) {
+            items.add(Triple("Cardápio", Icons.Filled.RestaurantMenu, "Cardápio"))
         }
+        if (userRole in listOf("owner", "kitchen")) {
+            items.add(Triple("Cozinha", Icons.Default.SoupKitchen, "Cozinha"))
+        }
+
+        // Item Central (Pedido) - Só aparece se tiver pedido
+        if (hasOrder && userRole in listOf("owner", "waiter", "counter")) {
+            items.add(Triple("Pedido", Icons.Filled.ShoppingBag, "Pedido"))
+        }
+
+        // Itens à Direita
+        if (userRole in listOf("owner", "counter")) {
+            items.add(Triple("Balcão", Icons.Filled.Storefront, "Balcão"))
+        }
+        if (userRole in listOf("owner", "waiter")) {
+            items.add(Triple("Mesa", Icons.Filled.TableRestaurant, "Mesa"))
+        }
+
+        items
     }
 
-    if (selectedIndex >= visibleItems.size && visibleItems.isNotEmpty()) selectedIndex = 0
+    // Ajusta a tela inicial se o usuário não tiver acesso ao Cardápio
+    LaunchedEffect(userRole) {
+        if (userRole == "kitchen") currentScreen = "Cozinha"
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
                 Spacer(Modifier.height(16.dp))
-
-                // --- CABEÇALHO DO MENU ---
+                // Cabeçalho do Drawer (Perfil)
                 if (isAdminMode) {
                     Surface(color = Color.Red.copy(alpha = 0.1f), modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Visibility, null, tint = Color.Red)
                             Spacer(Modifier.width(8.dp))
-                            Column {
-                                Text("MODO ESPIÃO", color = Color.Red, fontWeight = FontWeight.Bold)
-                                Text("Acesso Admin", style = MaterialTheme.typography.bodySmall)
-                            }
+                            Column { Text("MODO ESPIÃO", color = Color.Red, fontWeight = FontWeight.Bold); Text("Acesso Admin", style = MaterialTheme.typography.bodySmall) }
                         }
                     }
                 } else if (userProfile != null) {
                     Column(Modifier.padding(16.dp).fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = userProfile.name.take(1).uppercase(),
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 20.sp
-                                    )
-                                }
+                            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp)) {
+                                Box(contentAlignment = Alignment.Center) { Text(text = userProfile.name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp) }
                             }
                             Spacer(Modifier.width(12.dp))
                             Column {
-                                Text(
-                                    userProfile.name,
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                val cargo = when(userProfile.role) {
-                                    "owner" -> "Gerente / Dono"
-                                    "waiter" -> "Garçom"
-                                    "kitchen" -> "Cozinha"
-                                    "counter" -> "Balcão"
-                                    else -> "Pendente"
-                                }
-                                Text(
-                                    cargo,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.Gray
-                                )
+                                Text(userProfile.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                val cargo = when(userProfile.role) { "owner"->"Gerente"; "waiter"->"Garçom"; "kitchen"->"Cozinha"; "counter"->"Balcão"; else->"Pendente" }
+                                Text(cargo, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                             }
                         }
                     }
                     Divider()
                 }
-                // -------------------------
 
-                visibleItems.forEachIndexed { index, (title, icon, _) ->
+                // Itens do Drawer (Apenas Administrativo/Sistema)
+                if (userRole == "owner" || isAdminMode) {
                     NavigationDrawerItem(
-                        icon = { Icon(icon, null) },
-                        label = { Text(title) },
-                        selected = selectedIndex == index,
-                        onClick = { selectedIndex = index; scope.launch { drawerState.close() } },
+                        icon = { Icon(Icons.Outlined.Settings, null) },
+                        label = { Text("Gestão / Config") },
+                        selected = false,
+                        onClick = { scope.launch { drawerState.close(); navController.navigate("management_hub") } },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
                 }
+
                 Spacer(Modifier.weight(1f))
-                NavigationDrawerItem(icon = { Icon(Icons.Outlined.ExitToApp, null) }, label = { Text("Sair") }, selected = false, onClick = { scope.launch { drawerState.close(); if(isAdminMode) authViewModel.exitCompanyMode() else authViewModel.signOut() } }, modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding))
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Outlined.ExitToApp, null) },
+                    label = { Text("Sair") },
+                    selected = false,
+                    onClick = { scope.launch { drawerState.close(); if(isAdminMode) authViewModel.exitCompanyMode() else authViewModel.signOut() } },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
                 Spacer(Modifier.height(16.dp))
             }
         }
     ) {
-        val currentItem = visibleItems.getOrNull(selectedIndex)
+        Scaffold(
+            bottomBar = {
+                NavigationBar {
+                    bottomNavItems.forEach { (title, icon, routeKey) ->
+                        val isSelected = currentScreen == routeKey
+                        val isOrder = routeKey == "Pedido"
 
-        if (currentItem != null) {
-            when (currentItem.third) {
-                "Cardápio" -> MainScreen(managementViewModel, !orderViewModel.isOrderEmpty, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
-                "Cozinha" -> KitchenScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
-                "Balcão" -> CounterScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
-                "Mesa" -> TableScreen(kitchenViewModel, { scope.launch { drawerState.open() } }, { navController.navigate("order_summary/$it") })
-                "Gestão" -> ManagementHubScreen(
-                    managementViewModel,
-                    { scope.launch { drawerState.open() } },
-                    { navController.navigate("product_management") },
-                    { navController.navigate("manage_categories") },
-                    { navController.navigate("employee_management") }
-                )
+                        NavigationBarItem(
+                            icon = {
+                                if (isOrder) {
+                                    // Destaque para o botão de Pedido
+                                    BadgedBox(badge = { Badge { Text("!") } }) {
+                                        Icon(icon, null, tint = if(isSelected) MaterialTheme.colorScheme.primary else Color.Red)
+                                    }
+                                } else {
+                                    Icon(icon, null)
+                                }
+                            },
+                            label = { Text(title) },
+                            selected = isSelected,
+                            colors = NavigationBarItemDefaults.colors(
+                                indicatorColor = if (isOrder) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
+                            ),
+                            onClick = {
+                                if (isOrder) {
+                                    // Navega para o resumo do pedido
+                                    navController.navigate("order_summary/null")
+                                } else {
+                                    currentScreen = routeKey
+                                }
+                            }
+                        )
+                    }
+                }
             }
-        } else {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Selecione uma opção.") }
+        ) { innerPadding ->
+            Box(Modifier.padding(innerPadding)) {
+                when (currentScreen) {
+                    "Cardápio" -> MainScreen(managementViewModel, !orderViewModel.isOrderEmpty, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
+                    "Cozinha" -> KitchenScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
+                    "Balcão" -> CounterScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
+                    "Mesa" -> TableScreen(kitchenViewModel, { scope.launch { drawerState.open() } }, { navController.navigate("order_summary/$it") })
+                }
+            }
         }
     }
 }
@@ -388,7 +412,7 @@ fun MainAppLayout(
 @Composable
 fun MainScreen(
     managementViewModel: ManagementViewModel,
-    isOrderInProgress: Boolean,
+    isOrderInProgress: Boolean, // Mantido parâmetro mas não usado para FAB
     onNavigateToItemDetail: (String) -> Unit,
     onNavigateToOrder: () -> Unit,
     onOpenDrawer: () -> Unit
@@ -412,8 +436,15 @@ fun MainScreen(
     }
 
     Scaffold(
-        topBar = { CenterAlignedTopAppBar(title = { Text("Cardápio", fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, "Menu") } }) },
-        floatingActionButton = { if (isOrderInProgress) ExtendedFloatingActionButton(onClick = onNavigateToOrder, icon = { Icon(Icons.Filled.ShoppingBag, null) }, text = { Text("Ver Pedido") }) }
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Cardápio", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, "Menu") }
+                }
+            )
+        },
+        // FAB REMOVIDO DAQUI POIS AGORA ESTÁ NO RODAPÉ
     ) { innerPadding ->
         Column(Modifier.padding(innerPadding).fillMaxSize()) {
             SearchBar(searchText, { searchText = it }, { searchText = "" })
@@ -443,6 +474,7 @@ fun MainScreen(
     }
 }
 
+// ... (MenuItemCard, CategoryHeader, CategoryChip, SearchBar permanecem iguais)
 @Composable
 fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
     val decodedBitmap = remember(item.imageUrl) {
