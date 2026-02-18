@@ -1,3 +1,4 @@
+// ... (Imports permanecem os mesmos) ...
 package com.walli.flexcriatiwa
 
 import android.graphics.BitmapFactory
@@ -67,6 +68,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+// ... (RootNavigation, AuthorizedApp e MainAppLayout permanecem iguais ATÉ a rota order_summary) ...
 
 @Composable
 fun RootNavigation(
@@ -218,6 +221,7 @@ fun AuthorizedApp(
             }
         }
 
+        // --- ROTA CORRIGIDA PARA ENVIAR LISTA DE PEDIDOS ---
         composable("order_summary/{tableNumber}?") { backStackEntry ->
             val tableNumberStr = backStackEntry.arguments?.getString("tableNumber")
             val tableNumberArg = if (tableNumberStr == "null") null else tableNumberStr?.toIntOrNull()
@@ -225,9 +229,10 @@ fun AuthorizedApp(
             val activeTableId = tableNumberArg ?: orderViewModel.tableSelection.firstOrNull()
             val ordersByTable by kitchenViewModel.ordersByTable.collectAsState()
 
-            val existingItems = remember(ordersByTable, activeTableId) {
+            // AGORA: Obtemos a lista completa de pedidos (KitchenOrder), não itens achatados
+            val existingOrders = remember(ordersByTable, activeTableId) {
                 if (activeTableId != null) {
-                    ordersByTable[activeTableId]?.flatMap { it.items } ?: emptyList()
+                    ordersByTable[activeTableId] ?: emptyList()
                 } else {
                     emptyList()
                 }
@@ -247,7 +252,7 @@ fun AuthorizedApp(
                 }
             }
 
-            OrderScreen(orderViewModel, kitchenViewModel, existingItems, { orderViewModel.clearAll(); navController.popBackStack() }, { navController.navigate("main_layout") }, { orderViewModel.loadItemForEdit(it); navController.navigate("detail/${it.menuItem.id}") },
+            OrderScreen(orderViewModel, kitchenViewModel, existingOrders, { orderViewModel.clearAll(); navController.popBackStack() }, { navController.navigate("main_layout") }, { orderViewModel.loadItemForEdit(it); navController.navigate("detail/${it.menuItem.id}") },
                 {
                     if (activeTableId != null) kitchenViewModel.addItemsToTableOrder(activeTableId, orderViewModel.currentCartItems)
                     else kitchenViewModel.submitNewOrder(orderViewModel.currentCartItems, orderViewModel.destinationType, orderViewModel.tableSelection, orderViewModel.clientName, orderViewModel.payments)
@@ -257,6 +262,7 @@ fun AuthorizedApp(
     }
 }
 
+// ... (Restante do arquivo MainAppLayout, MainScreen, etc. permanece igual)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppLayout(
@@ -421,8 +427,6 @@ fun MainScreen(
     val categories = remember(managementViewModel.products, searchText) {
         val all = managementViewModel.productsByCategory
         if (searchText.isBlank()) all else all.mapNotNull { cat ->
-            // --- CORREÇÃO DA BUSCA ---
-            // Formata o código do item para o padrão de exibição (#001) para permitir buscas como "001"
             val items = cat.items.filter {
                 val formattedCode = "#%03d".format(it.code)
                 it.name.contains(searchText, ignoreCase = true) ||
@@ -608,6 +612,18 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
 }
 
 @Composable
+fun CategoryHeader(categoryName: String) {
+    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = categoryName,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(vertical = 16.dp)
+        )
+    }
+}
+
+@Composable
 fun CategoryChip(text: String, isSelected: Boolean, onClick: () -> Unit) {
     val bgColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
@@ -624,4 +640,25 @@ fun CategoryChip(text: String, isSelected: Boolean, onClick: () -> Unit) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
     }
+}
+
+@Composable
+fun SearchBar(searchText: String, onSearchChange: (String) -> Unit, onClearClick: () -> Unit) {
+    OutlinedTextField(
+        value = searchText,
+        onValueChange = onSearchChange,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        placeholder = { Text("Buscar produtos...") },
+        leadingIcon = { Icon(Icons.Default.Search, null) },
+        trailingIcon = {
+            if (searchText.isNotEmpty()) {
+                IconButton(onClick = onClearClick) { Icon(Icons.Default.Close, null) }
+            }
+        },
+        shape = RoundedCornerShape(24.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+            focusedContainerColor = MaterialTheme.colorScheme.surface
+        )
+    )
 }
