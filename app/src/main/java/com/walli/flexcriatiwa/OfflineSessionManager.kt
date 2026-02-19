@@ -1,64 +1,56 @@
 package com.walli.flexcriatiwa
 
 import android.content.Context
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import android.content.SharedPreferences
 
 class OfflineSessionManager(context: Context) {
+    private val prefs: SharedPreferences = context.getSharedPreferences("flex_criatiwa_session", Context.MODE_PRIVATE)
 
-    private val sharedPreferences = try {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+    fun saveSession(email: String, companyId: String, role: String, status: String, userName: String?) {
+        val editor = prefs.edit()
+        editor.putString("email", email)
+        editor.putString("companyId", companyId)
+        editor.putString("role", role)
+        editor.putString("status", status)
+        if (userName != null) editor.putString("userName", userName)
+        editor.apply()
+    }
 
-        EncryptedSharedPreferences.create(
-            context,
-            "flex_offline_session",
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    fun getSession(): Map<String, String?> {
+        return mapOf(
+            "email" to prefs.getString("email", null),
+            "companyId" to prefs.getString("companyId", null),
+            "role" to prefs.getString("role", null),
+            "status" to prefs.getString("status", null),
+            "userName" to prefs.getString("userName", null)
         )
-    } catch (e: Exception) {
-        context.getSharedPreferences("flex_offline_fallback", Context.MODE_PRIVATE)
-    }
-
-    // Agora salvamos o EMAIL também
-    fun saveSession(email: String, companyId: String, role: String, status: String, expiresAtMillis: Long?) {
-        sharedPreferences.edit().apply {
-            putString("saved_email_check", email) // Validação de segurança
-            putString("companyId", companyId)
-            putString("role", role)
-            putString("status", status)
-            putLong("expiresAt", expiresAtMillis ?: -1L)
-            apply()
-        }
-    }
-
-    fun getSession(): OfflineData? {
-        val companyId = sharedPreferences.getString("companyId", null)
-        val role = sharedPreferences.getString("role", null)
-
-        if (companyId != null && role != null) {
-            return OfflineData(
-                email = sharedPreferences.getString("saved_email_check", "") ?: "",
-                companyId = companyId,
-                role = role,
-                status = sharedPreferences.getString("status", "active") ?: "active",
-                expiresAt = sharedPreferences.getLong("expiresAt", -1L)
-            )
-        }
-        return null
     }
 
     fun clearSession() {
-        sharedPreferences.edit().clear().apply()
+        prefs.edit().clear().apply()
+    }
+
+    // --- NOVAS FUNÇÕES PARA CONFIGURAÇÃO DE NOTIFICAÇÃO ---
+
+    fun setNotifyKitchen(enabled: Boolean) {
+        prefs.edit().putBoolean("notify_kitchen", enabled).apply()
+    }
+
+    fun getNotifyKitchen(): Boolean {
+        // Padrão: True se for Owner ou Kitchen, False outros (mas o usuário pode mudar)
+        val role = prefs.getString("role", "")
+        val default = role == "owner" || role == "kitchen"
+        return prefs.getBoolean("notify_kitchen", default)
+    }
+
+    fun setNotifyCounter(enabled: Boolean) {
+        prefs.edit().putBoolean("notify_counter", enabled).apply()
+    }
+
+    fun getNotifyCounter(): Boolean {
+        // Padrão: True se for Owner, Waiter ou Counter
+        val role = prefs.getString("role", "")
+        val default = role == "owner" || role == "waiter" || role == "counter"
+        return prefs.getBoolean("notify_counter", default)
     }
 }
-
-data class OfflineData(
-    val email: String,
-    val companyId: String,
-    val role: String,
-    val status: String,
-    val expiresAt: Long
-)
