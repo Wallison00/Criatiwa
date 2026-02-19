@@ -1,10 +1,18 @@
 package com.walli.flexcriatiwa
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
+import android.os.Build
 import android.os.Bundle
 import android.util.Base64
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -32,6 +40,7 @@ import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.ExitToApp
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Notifications // Ícone de notificação
 import androidx.compose.material.icons.outlined.QrCode2
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
@@ -42,11 +51,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
@@ -61,6 +75,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        createNotificationChannels() // Canais criados (Cozinha e Balcão)
+
         val authViewModel: AuthViewModel by viewModels()
         val orderViewModel: OrderViewModel by viewModels()
         val kitchenViewModel: KitchenViewModel by viewModels()
@@ -70,6 +86,25 @@ class MainActivity : ComponentActivity() {
             FlexCriatiwaTheme {
                 RootNavigation(authViewModel, orderViewModel, kitchenViewModel, managementViewModel)
             }
+        }
+    }
+
+    private fun createNotificationChannels() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager: NotificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // Canal 1: Cozinha
+            val channelKitchen = NotificationChannel("kitchen_orders", "Pedidos Cozinha", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Novos pedidos para preparo"
+            }
+            notificationManager.createNotificationChannel(channelKitchen)
+
+            // Canal 2: Balcão/Garçom
+            val channelCounter = NotificationChannel("counter_ready", "Pedidos Prontos", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Pedidos prontos para entrega"
+            }
+            notificationManager.createNotificationChannel(channelCounter)
         }
     }
 }
@@ -200,6 +235,11 @@ fun AuthorizedApp(
             )
         }
 
+        // --- ROTA DE CONFIGURAÇÕES (Nova) ---
+        composable("settings") {
+            SettingsScreen(onNavigateBack = { navController.popBackStack() })
+        }
+
         composable("company_qr_code") {
             CompanyQRCodeScreen(
                 companyId = companyId,
@@ -289,6 +329,80 @@ fun MainAppLayout(
     val isAdminMode = authViewModel.isUserSuperAdmin
     val hasOrder = !orderViewModel.isOrderEmpty
 
+    // --- LÓGICA DE NOTIFICAÇÕES INTELIGENTES ---
+    val context = LocalContext.current
+    val offlineManager = remember { OfflineSessionManager(context) }
+
+    val kitchenOrders by kitchenViewModel.kitchenOrders.collectAsState()
+    val readyOrders by kitchenViewModel.readyOrders.collectAsState()
+
+    val pendingKitchenCount = kitchenOrders.size
+    val pendingCounterCount = readyOrders.size
+
+    var hasNotificationPermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            } else true
+        )
+    }
+
+    val launcher = rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestPermission()) { isGranted ->
+        hasNotificationPermission = isGranted
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    // 1. Monitora Novos Pedidos (Cozinha)
+    var previousKitchenCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(pendingKitchenCount) {
+        if (pendingKitchenCount > previousKitchenCount) {
+            // VERIFICA SE O USUÁRIO ATIVOU ESTA OPÇÃO
+            if (offlineManager.getNotifyKitchen() && hasNotificationPermission) {
+                if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                    try {
+                        val builder = NotificationCompat.Builder(context, "kitchen_orders")
+                            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                            .setContentTitle("Cozinha: Novo Pedido!")
+                            .setContentText("Existem $pendingKitchenCount pedidos aguardando.")
+                            .setPriority(NotificationCompat.PRIORITY_HIGH)
+                            .setAutoCancel(true)
+
+                        with(NotificationManagerCompat.from(context)) { notify(1001, builder.build()) }
+                    } catch (e: Exception) { }
+                }
+            }
+        }
+        previousKitchenCount = pendingKitchenCount
+    }
+
+    // 2. Monitora Pedidos Prontos (Balcão/Garçom)
+    var previousCounterCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(pendingCounterCount) {
+        if (pendingCounterCount > previousCounterCount) {
+            // VERIFICA SE O USUÁRIO ATIVOU ESTA OPÇÃO
+            if (offlineManager.getNotifyCounter() && hasNotificationPermission) {
+                if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                    try {
+                        val builder = NotificationCompat.Builder(context, "counter_ready")
+                            .setSmallIcon(android.R.drawable.ic_dialog_info)
+                            .setContentTitle("Balcão: Pedido Pronto!")
+                            .setContentText("$pendingCounterCount pedidos prontos para entrega.")
+                            .setPriority(NotificationCompat.PRIORITY_HIGH)
+                            .setAutoCancel(true)
+
+                        with(NotificationManagerCompat.from(context)) { notify(1002, builder.build()) }
+                    } catch (e: Exception) { }
+                }
+            }
+        }
+        previousCounterCount = pendingCounterCount
+    }
+
     var currentScreen by remember { mutableStateOf("Cardápio") }
 
     val bottomNavItems = remember(userRole, hasOrder) {
@@ -349,6 +463,16 @@ fun MainAppLayout(
                     Divider()
                 }
 
+                // --- ITEM DE CONFIGURAÇÃO (Para TODOS os usuários) ---
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Outlined.Notifications, null) },
+                    label = { Text("Config. Notificações") },
+                    selected = false,
+                    onClick = { scope.launch { drawerState.close(); navController.navigate("settings") } },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+                Divider(Modifier.padding(vertical = 8.dp))
+
                 if (userRole == "owner" || isAdminMode) {
                     Text("Gestão", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
 
@@ -403,13 +527,22 @@ fun MainAppLayout(
                 NavigationBar {
                     bottomNavItems.forEach { (title, icon, routeKey) ->
                         val isSelected = currentScreen == routeKey
+                        val badgeCount = when(routeKey) {
+                            "Cozinha" -> pendingKitchenCount
+                            "Balcão" -> pendingCounterCount
+                            else -> 0
+                        }
                         val isOrder = routeKey == "Pedido"
+                        val isOrderBadge = isOrder && !orderViewModel.isOrderEmpty
+                        val showCountBadge = badgeCount > 0
 
                         NavigationBarItem(
                             icon = {
-                                if (isOrder) {
-                                    BadgedBox(badge = { Badge { Text("!") } }) {
-                                        Icon(icon, null, tint = if(isSelected) MaterialTheme.colorScheme.primary else Color.Red)
+                                if (isOrderBadge || showCountBadge) {
+                                    BadgedBox(badge = {
+                                        Badge { Text(if (isOrderBadge) "!" else badgeCount.toString()) }
+                                    }) {
+                                        Icon(icon, null, tint = if(isSelected) MaterialTheme.colorScheme.primary else if (isOrderBadge) Color.Red else LocalContentColor.current)
                                     }
                                 } else {
                                     Icon(icon, null)
@@ -444,7 +577,7 @@ fun MainAppLayout(
     }
 }
 
-// --- TELA DE QR CODE CORRIGIDA: Exibe o CÓDIGO DE ACESSO correto ---
+// ... (Restante do arquivo permanece igual) ...
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CompanyQRCodeScreen(
@@ -499,7 +632,7 @@ fun CompanyQRCodeScreen(
                 Spacer(Modifier.height(24.dp))
                 Text("Código de Acesso:", style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    text = shareCode, // Exibe o código correto (6 letras)
+                    text = shareCode,
                     style = MaterialTheme.typography.displayMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -517,7 +650,6 @@ fun CompanyQRCodeScreen(
     }
 }
 
-// ... (Restante do arquivo permanece igual) ...
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(
