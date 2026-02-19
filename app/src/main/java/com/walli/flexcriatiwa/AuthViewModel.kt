@@ -55,7 +55,6 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                         authState = AuthState.LoggedIn(profile.companyId, profile.role)
                     } else if (profile.status == "pending_approval") {
                         authState = AuthState.PendingApproval
-                        // --- ATUALIZADO AQUI: Trata 'deleted' como bloqueio também ---
                     } else if (profile.status == "blocked" || profile.status == "deleted") {
                         authState = AuthState.Error("Acesso revogado.")
                         auth.signOut()
@@ -80,50 +79,65 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- LÓGICA DE LOGIN INTELIGENTE ---
     fun loginWithGoogleCredential(shareCode: String, idToken: String, onResult: (Boolean, String?) -> Unit) {
         val cleanCode = shareCode.trim().uppercase()
 
         viewModelScope.launch {
             try {
-                // 1. Valida Empresa
-                val snapshot = db.collection("companies").whereEqualTo("shareCode", cleanCode).limit(1).get().await()
-                if (snapshot.isEmpty) {
-                    onResult(false, "Código da empresa inválido.")
-                    return@launch
-                }
-                val companyId = snapshot.documents.first().id
-
-                // 2. Autentica no Firebase
+                // 1. Autentica no Firebase com Google
                 val credential = GoogleAuthProvider.getCredential(idToken, null)
                 val authResult = auth.signInWithCredential(credential).await()
                 val user = authResult.user ?: throw Exception("Falha na autenticação Google")
 
-                // 3. Verifica/Cria Usuário
+                // 2. Verifica se o usuário JÁ EXISTE
                 val userDocRef = db.collection("users").document(user.uid)
                 val userDoc = userDocRef.get().await()
 
                 if (userDoc.exists()) {
-                    // Usuário existente
-                    val currentCompany = userDoc.getString("companyId")
-                    val currentStatus = userDoc.getString("status")
-
-                    // Se ele foi deletado/bloqueado DA MESMA empresa, não deixamos resetar o status.
-                    // Mas se ele estiver mudando de empresa, damos uma nova chance (reset para pending)
-                    if (currentCompany != companyId) {
-                        userDocRef.update(mapOf(
-                            "companyId" to companyId,
-                            "role" to "pending",
-                            "status" to "pending_approval"
-                        )).await()
+                    // SE O USUÁRIO JÁ EXISTE E DEIXOU O CÓDIGO EM BRANCO -> LOGIN DIRETO
+                    if (cleanCode.isEmpty()) {
+                        startListeningToMyProfile(user.uid)
+                        onResult(true, null)
+                        return@launch
                     }
-                    // Se for a mesma empresa, o status 'deleted' será pego pelo listener e bloqueará o login.
+                    // Se ele digitou um código, continuamos para validar a troca de empresa
                 } else {
-                    // Novo usuário
+                    // Se é usuário NOVO, o código é OBRIGATÓRIO
+                    if (cleanCode.isEmpty()) {
+                        auth.signOut()
+                        onResult(false, "Para novos cadastros, informe o código da loja.")
+                        return@launch
+                    }
+                }
+
+                // 3. Valida a Empresa pelo código (apenas se digitado ou usuário novo)
+                val snapshot = db.collection("companies").whereEqualTo("shareCode", cleanCode).limit(1).get().await()
+                if (snapshot.isEmpty) {
+                    if (!userDoc.exists()) auth.signOut() // Desloga apenas se for usuário novo falhando
+                    onResult(false, "Código da empresa inválido.")
+                    return@launch
+                }
+
+                val companyDoc = snapshot.documents.first()
+                val companyId = companyDoc.id
+                val companyName = companyDoc.getString("name")
+
+                // 4. Salva/Atualiza Perfil
+                if (userDoc.exists()) {
+                    userDocRef.update(mapOf(
+                        "companyId" to companyId,
+                        "companyName" to companyName,
+                        "role" to "pending",
+                        "status" to "pending_approval"
+                    )).await()
+                } else {
                     val userProfile = UserProfile(
                         uid = user.uid,
                         email = user.email ?: "",
                         name = user.displayName ?: "Funcionário Google",
                         companyId = companyId,
+                        companyName = companyName,
                         role = "pending",
                         status = "pending_approval"
                     )
@@ -135,15 +149,16 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 onResult(true, null)
 
             } catch (e: Exception) {
+                auth.signOut()
                 onResult(false, "Erro: ${e.message}")
             }
         }
     }
 
-    // --- MÉTODOS MANTIDOS ---
     fun approveUser(userId: String, assignedRole: String) {
         viewModelScope.launch { try { db.collection("users").document(userId).update(mapOf("role" to assignedRole, "status" to "active")).await() } catch (e: Exception) { } }
     }
+
     fun registerCompany(companyName: String, onSuccess: () -> Unit) {
         val user = auth.currentUser ?: return
         viewModelScope.launch {
@@ -152,7 +167,17 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 val uniqueCode = (1..6).map { ('A'..'Z').random() }.joinToString("")
                 val company = Company(id = newCompanyRef.id, name = companyName, ownerId = user.uid, ownerEmail = user.email ?: "", shareCode = uniqueCode)
                 newCompanyRef.set(company).await()
-                val userProfile = UserProfile(uid = user.uid, email = user.email ?: "", name = user.displayName ?: "Dono", companyId = company.id, role = "owner", status = "active")
+
+                val userProfile = UserProfile(
+                    uid = user.uid,
+                    email = user.email ?: "",
+                    name = user.displayName ?: "Dono",
+                    companyId = company.id,
+                    companyName = companyName,
+                    role = "owner",
+                    status = "active"
+                )
+
                 db.collection("users").document(user.uid).set(userProfile).await()
                 currentUserProfile = userProfile
                 createDefaultMenuStructure(company.id)
@@ -162,11 +187,14 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) { authState = AuthState.Error("Erro: ${e.message}") }
         }
     }
+
     fun signOut() { auth.signOut(); authState = AuthState.LoggedOut; currentUserProfile = null }
+
     private suspend fun createDefaultMenuStructure(companyId: String) {
         val defaultCategories = listOf(mapOf("name" to "Lanches", "defaultIngredients" to listOf("Pão", "Carne"), "availableOptionals" to emptyList<Any>()))
         db.collection("companies").document(companyId).collection("settings").document("menu_structure").set(mapOf("categories" to defaultCategories)).await()
     }
+
     fun enterCompanyMode(companyId: String) { if(isUserSuperAdmin) authState = AuthState.LoggedIn(companyId, "admin_viewer") }
     fun exitCompanyMode() { if(isUserSuperAdmin) authState = AuthState.SuperAdmin }
     fun joinCompanyWithCode(code: String, onSuccess: () -> Unit) {}

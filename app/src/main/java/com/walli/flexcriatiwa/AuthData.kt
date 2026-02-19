@@ -7,9 +7,9 @@ data class UserProfile(
     val email: String = "",
     val name: String = "",
     val companyId: String? = null,
-    val role: String = "employee", // Será definido pelo gestor
-    // NOVO: Controla se o usuário pode entrar
-    val status: String = "active" // "active", "pending_approval", "blocked"
+    val companyName: String? = null, // <--- NOVO CAMPO ADICIONADO
+    val role: String = "employee",
+    val status: String = "active"
 )
 
 data class Company(

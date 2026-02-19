@@ -1,4 +1,3 @@
-// ... (Imports permanecem os mesmos) ...
 package com.walli.flexcriatiwa
 
 import android.graphics.BitmapFactory
@@ -29,7 +28,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Badge
+import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.ExitToApp
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.QrCode2
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -49,6 +52,8 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.firestore
 import com.walli.flexcriatiwa.ui.theme.FlexCriatiwaTheme
 import kotlinx.coroutines.launch
 
@@ -68,8 +73,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
-// ... (RootNavigation, AuthorizedApp e MainAppLayout permanecem iguais ATÉ a rota order_summary) ...
 
 @Composable
 fun RootNavigation(
@@ -197,6 +200,14 @@ fun AuthorizedApp(
             )
         }
 
+        composable("company_qr_code") {
+            CompanyQRCodeScreen(
+                companyId = companyId,
+                companyName = authViewModel.currentUserProfile?.companyName ?: "Empresa",
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
         composable("product_management") {
             ProductManagementScreen(managementViewModel, { navController.popBackStack() }, { managementViewModel.clearEditState(); navController.navigate("add_edit_product") }, { managementViewModel.loadProductForEdit(it); navController.navigate("add_edit_product") })
         }
@@ -221,7 +232,6 @@ fun AuthorizedApp(
             }
         }
 
-        // --- ROTA CORRIGIDA PARA ENVIAR LISTA DE PEDIDOS ---
         composable("order_summary/{tableNumber}?") { backStackEntry ->
             val tableNumberStr = backStackEntry.arguments?.getString("tableNumber")
             val tableNumberArg = if (tableNumberStr == "null") null else tableNumberStr?.toIntOrNull()
@@ -229,7 +239,6 @@ fun AuthorizedApp(
             val activeTableId = tableNumberArg ?: orderViewModel.tableSelection.firstOrNull()
             val ordersByTable by kitchenViewModel.ordersByTable.collectAsState()
 
-            // CORREÇÃO: Passar a lista de PEDIDOS, não de ITENS
             val existingOrders = remember(ordersByTable, activeTableId) {
                 if (activeTableId != null) {
                     ordersByTable[activeTableId] ?: emptyList()
@@ -252,26 +261,16 @@ fun AuthorizedApp(
                 }
             }
 
-            // CORREÇÃO: Passa 'existingOrders'
-            OrderScreen(
-                orderViewModel = orderViewModel,
-                kitchenViewModel = kitchenViewModel,
-                existingOrders = existingOrders, // <-- Aqui
-                onCancelOrder = { orderViewModel.clearAll(); navController.popBackStack() },
-                onAddItem = { navController.navigate("main_layout") },
-                onEditItem = { orderViewModel.loadItemForEdit(it); navController.navigate("detail/${it.menuItem.id}") },
-                onSendToKitchen = {
+            OrderScreen(orderViewModel, kitchenViewModel, existingOrders, { orderViewModel.clearAll(); navController.popBackStack() }, { navController.navigate("main_layout") }, { orderViewModel.loadItemForEdit(it); navController.navigate("detail/${it.menuItem.id}") },
+                {
                     if (activeTableId != null) kitchenViewModel.addItemsToTableOrder(activeTableId, orderViewModel.currentCartItems)
                     else kitchenViewModel.submitNewOrder(orderViewModel.currentCartItems, orderViewModel.destinationType, orderViewModel.tableSelection, orderViewModel.clientName, orderViewModel.payments)
                     orderViewModel.clearAll(); navController.navigate("main_layout") { popUpTo("main_layout") { inclusive = true } }
-                },
-                onNavigateBack = { navController.popBackStack() }
-            )
+                }, { navController.popBackStack() })
         }
     }
 }
 
-// ... (Restante do arquivo MainAppLayout, MainScreen, etc. permanece igual)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppLayout(
@@ -351,13 +350,40 @@ fun MainAppLayout(
                 }
 
                 if (userRole == "owner" || isAdminMode) {
+                    Text("Gestão", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+
                     NavigationDrawerItem(
-                        icon = { Icon(Icons.Outlined.Settings, null) },
-                        label = { Text("Gestão / Config") },
+                        icon = { Icon(Icons.Outlined.QrCode2, null) },
+                        label = { Text("QR Code da Loja") },
                         selected = false,
-                        onClick = { scope.launch { drawerState.close(); navController.navigate("management_hub") } },
+                        onClick = { scope.launch { drawerState.close(); navController.navigate("company_qr_code") } },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
+
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.ShoppingBag, null) },
+                        label = { Text("Produtos") },
+                        selected = false,
+                        onClick = { scope.launch { drawerState.close(); navController.navigate("product_management") } },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
+
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.List, null) },
+                        label = { Text("Categorias") },
+                        selected = false,
+                        onClick = { scope.launch { drawerState.close(); navController.navigate("manage_categories") } },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
+
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.Person, null) },
+                        label = { Text("Equipe") },
+                        selected = false,
+                        onClick = { scope.launch { drawerState.close(); navController.navigate("employee_management") } },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
+                    Divider(Modifier.padding(vertical = 8.dp))
                 }
 
                 Spacer(Modifier.weight(1f))
@@ -418,6 +444,80 @@ fun MainAppLayout(
     }
 }
 
+// --- TELA DE QR CODE CORRIGIDA: Exibe o CÓDIGO DE ACESSO correto ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CompanyQRCodeScreen(
+    companyId: String,
+    companyName: String,
+    onNavigateBack: () -> Unit
+) {
+    var shareCode by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(companyId) {
+        Firebase.firestore.collection("companies").document(companyId).get()
+            .addOnSuccessListener {
+                shareCode = it.getString("shareCode") ?: ""
+                isLoading = false
+            }
+            .addOnFailureListener { isLoading = false }
+    }
+
+    val qrBitmap = remember(shareCode) {
+        if (shareCode.isNotEmpty()) QRCodeUtils.generateQRCode(shareCode) else null
+    }
+
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Acesso da Loja", fontWeight = FontWeight.Bold) },
+                navigationIcon = { IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier.padding(innerPadding).fillMaxSize().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Peça para o autônomo escanear ou digitar este código:",
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(32.dp))
+
+            if (isLoading) {
+                CircularProgressIndicator()
+            } else if (qrBitmap != null) {
+                Image(
+                    bitmap = qrBitmap.asImageBitmap(),
+                    contentDescription = "QR Code da Empresa",
+                    modifier = Modifier.size(250.dp).background(Color.White).padding(16.dp)
+                )
+                Spacer(Modifier.height(24.dp))
+                Text("Código de Acesso:", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    text = shareCode, // Exibe o código correto (6 letras)
+                    style = MaterialTheme.typography.displayMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    letterSpacing = 4.sp
+                )
+            } else {
+                Box(Modifier.size(300.dp).background(Color.LightGray), contentAlignment = Alignment.Center) {
+                    Text("Erro ao carregar código")
+                }
+            }
+
+            Spacer(Modifier.height(32.dp))
+            Text(companyName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+// ... (Restante do arquivo permanece igual) ...
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(
