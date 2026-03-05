@@ -73,17 +73,30 @@ fun CounterOrderCard(order: KitchenOrder, onDeliver: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val title = if (order.destinationType == "Local")
-                    "MESA ${order.tableSelection.sorted().joinToString(", ")}"
-                else
-                    "SENHA: ${order.clientName ?: "Anon"}"
+                val isViagem = order.destinationType?.contains("Viagem", ignoreCase = true) == true || order.destinationType?.contains("Retirada", ignoreCase = true) == true
+                val tagText = if (isViagem) "VIAGEM" else "LOCAL"
+                val tagColor = if (isViagem) Color(0xFFFF9800) else Color(0xFF4CAF50)
 
-                Text(
-                    text = title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    color = Color(0xFF2E7D32)
-                )
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = tagColor, shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp), modifier = Modifier.padding(end = 8.dp)) {
+                            Text(text = tagText, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
+
+                        val title = if (isViagem) {
+                            "NOME: ${order.clientName ?: "Anon"}"
+                        } else {
+                            "MESA ${order.tableSelection.sorted().joinToString(", ")}"
+                        }
+
+                        Text(
+                            text = title,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = Color(0xFF2E7D32)
+                        )
+                    }
+                }
                 Text("#${order.id.toString().takeLast(4)}", color = Color.Gray)
             }
 

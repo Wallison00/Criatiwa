@@ -53,4 +53,13 @@ class OfflineSessionManager(context: Context) {
         val default = role == "owner" || role == "waiter" || role == "counter"
         return prefs.getBoolean("notify_counter", default)
     }
+
+    // --- FUNÇÕES DA IMPRESSORA BLUETOOTH ---
+    fun setPrinterMacAddress(mac: String?) {
+        prefs.edit().putString("printer_mac", mac).apply()
+    }
+
+    fun getPrinterMacAddress(): String? {
+        return prefs.getString("printer_mac", null)
+    }
 }

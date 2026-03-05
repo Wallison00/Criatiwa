@@ -75,11 +75,11 @@ class KitchenViewModel : ViewModel() {
             }
     }
 
-    fun submitNewOrder(items: List<OrderItem>, destinationType: String?, tableSelection: Set<Int>, clientName: String?, payments: List<SplitPayment>) {
+    fun submitNewOrder(items: List<OrderItem>, destinationType: String?, tableSelection: Set<Int>, clientName: String?, payments: List<SplitPayment>, timestamp: Long = System.currentTimeMillis()) {
         val companyId = currentCompanyId ?: return
         if (items.isEmpty()) return
         val data = hashMapOf(
-            "timestamp" to System.currentTimeMillis(), "status" to OrderStatus.PREPARING.name,
+            "timestamp" to timestamp, "status" to OrderStatus.PREPARING.name,
             "destinationType" to destinationType, "tableSelection" to tableSelection.toList(), "clientName" to clientName,
             "items" to items.map { orderItemToMap(it) },
             "payments" to payments.map { mapOf("amount" to it.amount, "method" to it.method) },
@@ -89,14 +89,21 @@ class KitchenViewModel : ViewModel() {
     }
 
     // --- CORREÇÃO FEITA: SEMPRE CRIA NOVO PEDIDO (FIFO) ---
-    fun addItemsToTableOrder(tableNumber: Int, newItems: List<OrderItem>) {
+    fun addItemsToTableOrder(
+        tableNumber: Int, 
+        newItems: List<OrderItem>, 
+        timestamp: Long = System.currentTimeMillis(),
+        destinationType: String? = "Local",
+        clientName: String? = "Mesa $tableNumber"
+    ) {
         // NÃO buscamos mais existingOrder. Criamos sempre um novo.
         submitNewOrder(
             items = newItems,
-            destinationType = "Local",
+            destinationType = destinationType,
             tableSelection = setOf(tableNumber),
-            clientName = "Mesa $tableNumber",
-            payments = emptyList()
+            clientName = clientName,
+            payments = emptyList(),
+            timestamp = timestamp
         )
     }
 

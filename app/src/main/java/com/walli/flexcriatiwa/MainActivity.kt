@@ -195,6 +195,7 @@ fun AuthorizedApp(
 
     LaunchedEffect(companyId) {
         managementViewModel.updateCompanyContext(companyId)
+        managementViewModel.loadPaymentConfig(companyId) // Adicione esta linha aqui!
         kitchenViewModel.updateCompanyContext(companyId)
     }
 
@@ -227,11 +228,13 @@ fun AuthorizedApp(
 
         composable("management_hub") {
             ManagementHubScreen(
-                managementViewModel,
-                { },
-                { navController.navigate("product_management") },
-                { navController.navigate("manage_categories") },
-                { navController.navigate("employee_management") }
+                managementViewModel = managementViewModel,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToProducts = { navController.navigate("product_management") },
+                onNavigateToCategories = { navController.navigate("manage_categories") },
+                onNavigateToEmployees = { navController.navigate("employee_management") },
+                onNavigateToPaymentConfig = { navController.navigate("payment_config") }, // <--- Adicione esta linha
+                onNavigateToSettings = { navController.navigate("settings") }
             )
         }
 
@@ -301,12 +304,37 @@ fun AuthorizedApp(
                 }
             }
 
-            OrderScreen(orderViewModel, kitchenViewModel, existingOrders, { orderViewModel.clearAll(); navController.popBackStack() }, { navController.navigate("main_layout") }, { orderViewModel.loadItemForEdit(it); navController.navigate("detail/${it.menuItem.id}") },
-                {
-                    if (activeTableId != null) kitchenViewModel.addItemsToTableOrder(activeTableId, orderViewModel.currentCartItems)
-                    else kitchenViewModel.submitNewOrder(orderViewModel.currentCartItems, orderViewModel.destinationType, orderViewModel.tableSelection, orderViewModel.clientName, orderViewModel.payments)
-                    orderViewModel.clearAll(); navController.navigate("main_layout") { popUpTo("main_layout") { inclusive = true } }
-                }, { navController.popBackStack() })
+            OrderScreen(
+                orderViewModel = orderViewModel,
+                kitchenViewModel = kitchenViewModel,
+                managementViewModel = managementViewModel, // <--- ADICIONE ESTA LINHA
+                existingOrders = existingOrders,
+                onCancelOrder = { orderViewModel.clearAll(); navController.popBackStack() },
+                onAddItem = { navController.navigate("main_layout") },
+                onEditItem = { orderViewModel.loadItemForEdit(it); navController.navigate("detail/${it.menuItem.id}") },
+                onSendToKitchen = { generatedTimestamp ->
+                    if (activeTableId != null) kitchenViewModel.addItemsToTableOrder(
+                        tableNumber = activeTableId, 
+                        newItems = orderViewModel.currentCartItems, 
+                        timestamp = generatedTimestamp,
+                        destinationType = orderViewModel.destinationType ?: "Local",
+                        clientName = orderViewModel.clientName?.takeIf { it.isNotBlank() } ?: "Mesa $activeTableId"
+                    )
+                    else kitchenViewModel.submitNewOrder(orderViewModel.currentCartItems, orderViewModel.destinationType, orderViewModel.tableSelection, orderViewModel.clientName, orderViewModel.payments, generatedTimestamp)
+                    orderViewModel.clearAll()
+                    navController.navigate("main_layout") { popUpTo("main_layout") { inclusive = true } }
+                },
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // Dentro do NavHost em AuthorizedApp
+        composable("payment_config") {
+            PaymentConfigScreen(
+                companyId = companyId,
+                managementViewModel = managementViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
     }
 }
@@ -466,11 +494,28 @@ fun MainAppLayout(
                 // --- ITEM DE CONFIGURAÇÃO (Para TODOS os usuários) ---
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Outlined.Notifications, null) },
-                    label = { Text("Config. Notificações") },
+                    label = { Text("Config. de Notificações") },
                     selected = false,
                     onClick = { scope.launch { drawerState.close(); navController.navigate("settings") } },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
+
+                // --- NOVO ITEM: CONFIGURAR MAQUININHA (Apenas para Gestores/Admin) ---
+                if (userRole == "owner" || isAdminMode) {
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.CreditCard, null) },
+                        label = { Text("Configurar Maquininha") },
+                        selected = false,
+                        onClick = {
+                            scope.launch {
+                                drawerState.close()
+                                navController.navigate("payment_config")
+                            }
+                        },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
+                }
+
                 Divider(Modifier.padding(vertical = 8.dp))
 
                 if (userRole == "owner" || isAdminMode) {
@@ -481,6 +526,14 @@ fun MainAppLayout(
                         label = { Text("QR Code da Loja") },
                         selected = false,
                         onClick = { scope.launch { drawerState.close(); navController.navigate("company_qr_code") } },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
+
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.Dashboard, null) },
+                        label = { Text("Abrir Hub de Gestão") },
+                        selected = false,
+                        onClick = { scope.launch { drawerState.close(); navController.navigate("management_hub") } },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
 

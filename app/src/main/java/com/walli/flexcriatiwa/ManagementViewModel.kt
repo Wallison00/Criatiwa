@@ -28,6 +28,7 @@ class ManagementViewModel : ViewModel() {
     private var settingsListener: ListenerRegistration? = null
     private var pendingUsersListener: ListenerRegistration? = null
     private var employeesListener: ListenerRegistration? = null
+    private var paymentConfigListener: ListenerRegistration? = null // Novo listener
 
     // --- ESTADOS ---
     var products by mutableStateOf<List<ManagedProduct>>(emptyList())
@@ -50,6 +51,10 @@ class ManagementViewModel : ViewModel() {
     var employees by mutableStateOf<List<UserProfile>>(emptyList())
         private set
 
+    // Novo estado para o Mercado Pago
+    var paymentConfig by mutableStateOf<PaymentConfig?>(null)
+        private set
+
     // --- INICIALIZAÇÃO ---
     fun updateCompanyContext(companyId: String) {
         currentCompanyId = companyId
@@ -58,16 +63,35 @@ class ManagementViewModel : ViewModel() {
         settingsListener?.remove()
         pendingUsersListener?.remove()
         employeesListener?.remove()
+        paymentConfigListener?.remove() // Limpa o anterior
 
         startListeningProducts(companyId)
         startListeningSettings(companyId)
         startListeningForPendingUsers(companyId)
         startListeningForEmployees(companyId)
         loadCompanyDetails(companyId)
+        loadPaymentConfig(companyId) // Inicia a escuta do Mercado Pago
+    }
+
+    // --- MERCADO PAGO: CARREGAR CONFIGURAÇÕES ---
+    fun loadPaymentConfig(companyId: String) {
+        paymentConfigListener = db.collection("companies")
+            .document(companyId)
+            .collection("config")
+            .document("payments")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("PaymentConfig", "Erro ao carregar Mercado Pago", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null && snapshot.exists()) {
+                    paymentConfig = snapshot.toObject(PaymentConfig::class.java)
+                    Log.d("PaymentConfig", "Configuração MP carregada com sucesso")
+                }
+            }
     }
 
     // --- GERENCIAMENTO DE USUÁRIOS ---
-
     private fun startListeningForPendingUsers(companyId: String) {
         pendingUsersListener = db.collection("users")
             .whereEqualTo("companyId", companyId)
@@ -105,7 +129,6 @@ class ManagementViewModel : ViewModel() {
     fun deleteUser(userId: String) {
         viewModelScope.launch {
             try {
-                // Exclusão Lógica (Mantém histórico, mas remove acesso)
                 db.collection("users").document(userId).update("status", "deleted").await()
             } catch (e: Exception) {
                 errorMessage = "Erro ao excluir: ${e.message}"
@@ -113,7 +136,6 @@ class ManagementViewModel : ViewModel() {
         }
     }
 
-    // --- NOVA FUNÇÃO: ATUALIZAR CARGO ---
     fun updateUserRole(userId: String, newRole: String) {
         viewModelScope.launch {
             try {
@@ -124,7 +146,6 @@ class ManagementViewModel : ViewModel() {
         }
     }
 
-    // --- DADOS DA EMPRESA (Mantido) ---
     private fun loadCompanyDetails(companyId: String) {
         viewModelScope.launch {
             errorMessage = null
@@ -145,7 +166,6 @@ class ManagementViewModel : ViewModel() {
         }
     }
 
-    // --- PRODUTOS E CONFIGURAÇÕES (Mantido igual) ---
     private fun startListeningProducts(companyId: String) {
         productsListener = db.collection("companies").document(companyId).collection("products")
             .addSnapshotListener { snapshot, e ->
@@ -240,18 +260,27 @@ class ManagementViewModel : ViewModel() {
     private fun compressUriToBase64(context: Context, uri: Uri): String { return try { val inputStream = context.contentResolver.openInputStream(uri); val bitmap = BitmapFactory.decodeStream(inputStream); val outputStream = ByteArrayOutputStream(); bitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream); "data:image/jpeg;base64," + Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP) } catch (e: Exception) { "" } }
     fun deleteProduct(product: ManagedProduct) { val companyId = currentCompanyId ?: return; if (product.id.isNotBlank()) db.collection("companies").document(companyId).collection("products").document(product.id).delete() }
 
-    // --- CORREÇÃO AQUI: Ordenação por Código ---
     val productsByCategory: List<MenuCategory>
         get() = products.filter { it.isActive }
             .groupBy { it.category }
             .map { (cat, items) ->
                 MenuCategory(
                     cat,
-                    items.sortedBy { it.code } // Ordena itens pelo código (menor -> maior)
+                    items.sortedBy { it.code }
                         .map { MenuItem(it.id, it.code, it.name, it.price, it.imageUrl) }
                 )
             }
 
     var productToEdit by mutableStateOf<ManagedProduct?>(null); private set
     fun loadProductForEdit(product: ManagedProduct) { productToEdit = product }; fun clearEditState() { productToEdit = null }
+
+    // Limpeza de listeners quando o ViewModel for destruído
+    override fun onCleared() {
+        super.onCleared()
+        productsListener?.remove()
+        settingsListener?.remove()
+        pendingUsersListener?.remove()
+        employeesListener?.remove()
+        paymentConfigListener?.remove()
+    }
 }

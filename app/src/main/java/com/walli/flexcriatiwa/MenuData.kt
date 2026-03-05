@@ -91,3 +91,9 @@ class CurrencyVisualTransformation(
         return TransformedText(AnnotatedString(maskedText), offsetMapping)
     }
 }
+
+// Estrutura para ler as configurações de pagamento do Firebase
+data class PaymentConfig(
+    val mercadoPagoAccessToken: String = "",
+    val activeDeviceId: String = ""
+)

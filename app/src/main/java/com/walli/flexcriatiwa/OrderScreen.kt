@@ -1,5 +1,9 @@
 package com.walli.flexcriatiwa
 
+import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -27,18 +31,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.sp
 import java.math.BigDecimal
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderScreen(
     orderViewModel: OrderViewModel,
     kitchenViewModel: KitchenViewModel,
+    managementViewModel: ManagementViewModel, // <--- ADICIONE ESTA LINHA
     existingOrders: List<KitchenOrder>,
     onCancelOrder: () -> Unit,
     onAddItem: () -> Unit,
     onEditItem: (OrderItem) -> Unit,
-    onSendToKitchen: () -> Unit,
+    onSendToKitchen: (Long) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val cartItems = orderViewModel.currentCartItems
@@ -60,6 +70,21 @@ fun OrderScreen(
     val newPaymentsValue = newPayments.sumOf { it.amount }
     val totalPaid = existingPaymentsValue + newPaymentsValue
     val remainingAmount = (totalPrice.toBigDecimal() - totalPaid.toBigDecimal()).toDouble()
+
+    // Dentro da OrderScreen, logo após calcular o remainingAmount
+    val onPayWithPoint: (Double) -> Unit = { valor ->
+        val config = managementViewModel.paymentConfig
+        if (config != null && config.mercadoPagoAccessToken.isNotEmpty()) {
+            val pedidoId = currentTableId?.let { "Mesa $it" } ?: "Balcão ${System.currentTimeMillis().toString().takeLast(4)}"
+            orderViewModel.enviarPagamentoParaPoint(
+                token = config.mercadoPagoAccessToken,
+                deviceId = config.activeDeviceId,
+                valorTotal = valor,
+                pedidoId = pedidoId
+            )
+        }
+    }
+
     val isFullyPaid = remainingAmount <= 0.01
 
     val canCloseBill = activeOrdersForTable.any { it.status != OrderStatus.FINISHED }
@@ -68,10 +93,85 @@ fun OrderScreen(
     var showDestinationDialog by remember { mutableStateOf(false) }
     var showCancellationDialog by remember { mutableStateOf(false) }
     var showJustificationDialog by remember { mutableStateOf(false) }
+    var showPrintModal by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val offlineManager = remember { OfflineSessionManager(context) }
+    val scope = rememberCoroutineScope()
 
     val canSendOrder = cartItems.isNotEmpty() && destinationType != null
 
     // --- DIALOGS ---
+    if (showPrintModal) {
+        val printerMac = offlineManager.getPrinterMacAddress()
+        AlertDialog(
+            onDismissRequest = { showPrintModal = false },
+            title = { Text("Imprimir Comanda?") },
+            text = { Text("Deseja imprimir a comanda deste pedido na impressora configurada?") },
+            confirmButton = {
+                Button(onClick = {
+                    showPrintModal = false
+                    val currentTimestamp = System.currentTimeMillis()
+                    if (printerMac != null) {
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                val impressora = EscPosPrinter()
+                                val intensParaImprimir = cartItems.map { item ->
+                                    val obsList = mutableListOf<String>()
+                                    if (item.removedIngredients.isNotEmpty()) {
+                                        obsList.add("Sem: " + item.removedIngredients.joinToString())
+                                    }
+                                    if (item.additionalIngredients.isNotEmpty()) {
+                                        item.additionalIngredients.forEach { (nomeAdicional, qtdAdicional) ->
+                                            obsList.add("Adicional: ${qtdAdicional}x $nomeAdicional")
+                                        }
+                                    }
+                                    item.meatDoneness?.let { obsList.add("Ponto da carne: $it") }
+                                    item.observations?.let { if (it.isNotBlank()) obsList.add("Observação: $it") }
+                                    
+                                    EscPosPrinter.Item(item.quantity, item.menuItem.name, observacoes = obsList)
+                                }
+                                val formattedTime = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(currentTimestamp))
+                                val mesaText = currentTableId?.let { "MESA: $it" } ?: (orderViewModel.clientName?.takeIf { it.isNotBlank() }?.let { "NOME: $it" } ?: "BALCÃO")
+                                val tipoDest = if (destinationType?.contains("Viagem", ignoreCase = true) == true || destinationType?.contains("Retirada", ignoreCase = true) == true) "VIAGEM" else "LOCAL"
+                                val pedido = EscPosPrinter.Pedido(
+                                    id = currentTimestamp.toString().takeLast(4), 
+                                    mesa = mesaText, 
+                                    tipoDestino = tipoDest,
+                                    hora = formattedTime, 
+                                    itens = intensParaImprimir
+                                )
+                                val bytes = impressora.gerarBufferBytes("--- NOVO PEDIDO ---", pedido)
+                                val success = EscPosPrinter.imprimirBuffer(context, printerMac, bytes)
+                                withContext(Dispatchers.Main) {
+                                    if (success) {
+                                        Toast.makeText(context, "Enviado p/ Impressora e Cozinha!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Falha na Impressão! Verifique o Bluetooth.", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+                            onSendToKitchen(currentTimestamp)
+                        }
+                    } else {
+                        Toast.makeText(context, "Impressora não configurada! Vá em Configurações.", Toast.LENGTH_LONG).show()
+                        onSendToKitchen(currentTimestamp)
+                    }
+                }) {
+                    Text("Sim")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { 
+                    showPrintModal = false
+                    onSendToKitchen(System.currentTimeMillis())
+                }) {
+                    Text("Não")
+                }
+            }
+        )
+    }
+
     if (showJustificationDialog) {
         var justificationText by remember { mutableStateOf("") }
         var isError by remember { mutableStateOf(false) }
@@ -119,7 +219,16 @@ fun OrderScreen(
     }
 
     if (showPaymentDialog) {
-        PaymentDialog(totalPrice, newPayments, existingPaymentsValue, { showPaymentDialog = false }, { orderViewModel.updatePayments(it); showPaymentDialog = false }, { orderViewModel.addPayment(it) }, { orderViewModel.clearPayments() })
+        PaymentDialog(
+            totalOrderPrice = totalPrice,
+            currentPayments = newPayments,
+            alreadyPaidAmount = existingPaymentsValue,
+            onDismiss = { showPaymentDialog = false },
+            onConfirm = { orderViewModel.updatePayments(it); showPaymentDialog = false },
+            onAddPayment = { orderViewModel.addPayment(it) },
+            onClearPayments = { orderViewModel.clearPayments() },
+            onPayWithPoint = onPayWithPoint // <--- ADICIONE ESTA LINHA AQUI
+        )
     }
 
     if (showCancellationDialog) { CancellationDialog({ showCancellationDialog = false }, onCancelOrder) }
@@ -141,7 +250,7 @@ fun OrderScreen(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (canSendOrder) {
-                            Button(onClick = onSendToKitchen, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))) {
+                            Button(onClick = { showPrintModal = true }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))) {
                                 Text("Enviar"); Spacer(Modifier.width(4.dp)); Icon(Icons.Default.Send, null)
                             }
                         }
@@ -326,7 +435,8 @@ fun PaymentDialog(
     onDismiss: () -> Unit,
     onConfirm: (List<SplitPayment>) -> Unit,
     onAddPayment: (SplitPayment) -> Unit,
-    onClearPayments: () -> Unit
+    onClearPayments: () -> Unit,
+    onPayWithPoint: (Double) -> Unit // <--- ADICIONE ESTA LINHA NA DEFINIÇÃO
 ) {
     var paymentFormat by remember { mutableStateOf(if (currentPayments.isNotEmpty()) "Dividir Conta" else "Integral") }
     var selectedPaymentMethod by remember { mutableStateOf("Dinheiro") }
@@ -381,10 +491,41 @@ fun PaymentDialog(
             }
         },
         confirmButton = {
-            if (paymentFormat == "Integral" && remainingAmount > 0.01) {
-                Button(onClick = { onConfirm(listOf(SplitPayment(remainingAmount, selectedPaymentMethod))) }, modifier = Modifier.fillMaxWidth()) { Text("Confirmar Pagamento Total") }
-            } else {
-                Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Concluir / Voltar") }
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Botão do Mercado Pago (Destaque Azul)
+                if (remainingAmount > 0.01) {
+                    Button(
+                        onClick = {
+                            val valorParaCobrar = if (paymentFormat == "Integral") remainingAmount else currentAmountInput
+                            if (valorParaCobrar > 0) {
+                                onPayWithPoint(valorParaCobrar) // <--- CHAMADA DA MÁQUINA
+                                // Se for integral, já confirmamos o método como Débito/Crédito automaticamente
+                                if (paymentFormat == "Integral") {
+                                    onConfirm(listOf(SplitPayment(remainingAmount, "Cartão (Point)")))
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF009EE3)) // Azul MP
+                    ) {
+                        Icon(Icons.Default.CreditCard, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Enviar para Point Pro 3")
+                    }
+                }
+
+                if (paymentFormat == "Integral" && remainingAmount > 0.01) {
+                    Button(
+                        onClick = { onConfirm(listOf(SplitPayment(remainingAmount, selectedPaymentMethod))) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Confirmar Pagamento Local ($selectedPaymentMethod)")
+                    }
+                } else {
+                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                        Text("Concluir / Voltar")
+                    }
+                }
             }
         },
         dismissButton = { if (paymentFormat == "Integral") TextButton(onClick = onDismiss) { Text("Cancelar") } }

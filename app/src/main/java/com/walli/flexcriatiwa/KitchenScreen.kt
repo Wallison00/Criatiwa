@@ -97,12 +97,22 @@ fun KitchenOrderCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    val title = if (order.destinationType == "Local")
-                        "Mesa ${order.tableSelection.sorted().joinToString(", ")}"
-                    else
-                        "Viagem: ${order.clientName ?: "Cliente"}"
+                    val isViagem = order.destinationType?.contains("Viagem", ignoreCase = true) == true || order.destinationType?.contains("Retirada", ignoreCase = true) == true
+                    val tagText = if (isViagem) "VIAGEM" else "LOCAL"
+                    val tagColor = if (isViagem) Color(0xFFFF9800) else Color(0xFF4CAF50)
 
-                    Text(text = title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = tagColor, shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp), modifier = Modifier.padding(end = 8.dp)) {
+                            Text(text = tagText, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
+
+                        val title = if (isViagem) {
+                            "Nome: ${order.clientName ?: "Cliente"}"
+                        } else {
+                            "Mesa ${order.tableSelection.sorted().joinToString(", ")}"
+                        }
+                        Text(text = title, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    }
                     Text("ID: #${order.id.toString().takeLast(4)}", fontSize = 12.sp, color = Color.Gray)
                 }
 

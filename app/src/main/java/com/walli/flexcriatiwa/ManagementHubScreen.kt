@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,10 +26,12 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun ManagementHubScreen(
     managementViewModel: ManagementViewModel,
-    onOpenDrawer: () -> Unit,
+    onNavigateBack: () -> Unit,
     onNavigateToProducts: () -> Unit,
     onNavigateToCategories: () -> Unit,
-    onNavigateToEmployees: () -> Unit // <--- Novo parâmetro obrigatório
+    onNavigateToEmployees: () -> Unit,
+    onNavigateToPaymentConfig: () -> Unit,
+    onNavigateToSettings: () -> Unit
 ) {
     val company = managementViewModel.currentCompany
     val errorMessage = managementViewModel.errorMessage
@@ -44,7 +47,7 @@ fun ManagementHubScreen(
             CenterAlignedTopAppBar(
                 title = { Text("Gestão", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onOpenDrawer) { Icon(Icons.Default.Menu, "Menu") }
+                    IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") }
                 }
             )
         }
@@ -100,20 +103,37 @@ fun ManagementHubScreen(
                 Text("Administração", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(16.dp))
 
-                // Botão de Equipe
-                ManagementCard(
-                    title = "Gerenciar Equipe",
-                    icon = Icons.Default.Groups,
-                    color = Color(0xFF9C27B0), // Roxo
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onNavigateToEmployees
-                )
+                // Fila Superior: Equipe e Maquininha
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ManagementCard(
+                        title = "Equipe",
+                        icon = Icons.Default.Groups,
+                        color = Color(0xFF9C27B0),
+                        modifier = Modifier.weight(1f),
+                        onClick = onNavigateToEmployees
+                    )
+                    ManagementCard(
+                        title = "Maquininha",
+                        icon = Icons.Default.CreditCard,
+                        color = Color(0xFF009EE3), // Azul Mercado Pago
+                        modifier = Modifier.weight(1f),
+                        onClick = onNavigateToPaymentConfig
+                    )
+                }
 
                 Spacer(Modifier.height(16.dp))
 
+                // Fila Inferior: Produtos e Estrutura
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ManagementCard(title = "Produtos", icon = Icons.Default.Fastfood, color = Color(0xFF4CAF50), modifier = Modifier.weight(1f), onClick = onNavigateToProducts)
                     ManagementCard(title = "Estrutura", icon = Icons.Default.Category, color = Color(0xFF2196F3), modifier = Modifier.weight(1f), onClick = onNavigateToCategories)
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // Fila Extra: Configurações Gerais (Impressora/Notificações)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ManagementCard(title = "Configurações Gerais\n(Impressora)", icon = Icons.Default.Settings, color = Color(0xFF607D8B), modifier = Modifier.weight(1f), onClick = onNavigateToSettings)
                 }
             }
         }
@@ -122,13 +142,13 @@ fun ManagementHubScreen(
 
 @Composable
 fun ManagementCard(title: String, icon: ImageVector, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Card(modifier = modifier.height(120.dp).clickable(onClick = onClick), elevation = CardDefaults.cardElevation(4.dp)) {
+    Card(modifier = modifier.height(110.dp).clickable(onClick = onClick), elevation = CardDefaults.cardElevation(4.dp)) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Icon(imageVector = icon, contentDescription = null, tint = color.copy(alpha = 0.2f), modifier = Modifier.size(80.dp).align(Alignment.BottomEnd).offset(x = 16.dp, y = 16.dp))
-            Column(modifier = Modifier.padding(16.dp).align(Alignment.TopStart)) {
-                Icon(imageVector = icon, contentDescription = null, tint = color, modifier = Modifier.size(32.dp))
+            Icon(imageVector = icon, contentDescription = null, tint = color.copy(alpha = 0.15f), modifier = Modifier.size(70.dp).align(Alignment.BottomEnd).offset(x = 12.dp, y = 12.dp))
+            Column(modifier = Modifier.padding(12.dp).align(Alignment.TopStart)) {
+                Icon(imageVector = icon, contentDescription = null, tint = color, modifier = Modifier.size(28.dp))
                 Spacer(Modifier.weight(1f))
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             }
         }
     }
