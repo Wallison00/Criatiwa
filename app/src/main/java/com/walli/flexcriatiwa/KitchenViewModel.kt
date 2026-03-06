@@ -1,6 +1,5 @@
 package com.walli.flexcriatiwa
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Firebase
@@ -17,6 +16,7 @@ class KitchenViewModel : ViewModel() {
     private var ordersListener: ListenerRegistration? = null
 
     private val _allActiveOrders = MutableStateFlow<List<KitchenOrder>>(emptyList())
+    val allActiveOrders: StateFlow<List<KitchenOrder>> = _allActiveOrders.asStateFlow()
 
     // Filtra pedidos para a tela da cozinha (Apenas PREPARING)
     val kitchenOrders: StateFlow<List<KitchenOrder>> = _allActiveOrders.map { orders ->
@@ -54,9 +54,9 @@ class KitchenViewModel : ViewModel() {
                 if (snapshot != null) {
                     _allActiveOrders.value = snapshot.documents.mapNotNull { doc ->
                         try {
-                            val items = (doc.get("items") as? List<Map<String, Any>>)?.map { mapToOrderItem(it) } ?: emptyList()
-                            val tables = (doc.get("tableSelection") as? List<Number>)?.map { it.toInt() }?.toSet() ?: emptySet()
-                            val payments = (doc.get("payments") as? List<Map<String, Any>>)?.map { SplitPayment((it["amount"] as? Number)?.toDouble() ?: 0.0, it["method"] as? String ?: "") } ?: emptyList()
+                            val items = (doc.get("items") as? List<*>)?.filterIsInstance<Map<String, Any>>()?.map { mapToOrderItem(it) } ?: emptyList()
+                            val tables = (doc.get("tableSelection") as? List<*>)?.filterIsInstance<Number>()?.map { it.toInt() }?.toSet() ?: emptySet()
+                            val payments = (doc.get("payments") as? List<*>)?.filterIsInstance<Map<String, Any>>()?.map { SplitPayment((it["amount"] as? Number)?.toDouble() ?: 0.0, it["method"] as? String ?: "") } ?: emptyList()
                             val closingNote = doc.getString("closingNote")
 
                             KitchenOrder(
@@ -69,7 +69,7 @@ class KitchenViewModel : ViewModel() {
                                 payments = payments,
                                 closingNote = closingNote
                             )
-                        } catch (e: Exception) { null }
+                        } catch (_: Exception) { null }
                     }
                 }
             }

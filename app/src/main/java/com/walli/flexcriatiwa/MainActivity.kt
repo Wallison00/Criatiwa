@@ -24,6 +24,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -371,7 +372,6 @@ fun MainAppLayout(
     val userProfile = authViewModel.currentUserProfile
     val userRole = userProfile?.role ?: "employee"
     val isAdminMode = authViewModel.isUserSuperAdmin
-    val hasOrder = !orderViewModel.isOrderEmpty
 
     // --- LÓGICA DE NOTIFICAÇÕES INTELIGENTES ---
     val context = LocalContext.current
@@ -449,7 +449,7 @@ fun MainAppLayout(
 
     var currentScreen by remember { mutableStateOf("Cardápio") }
 
-    val bottomNavItems = remember(userRole, hasOrder) {
+    val bottomNavItems = remember(userRole) {
         val items = mutableListOf<Triple<String, ImageVector, String>>()
 
         if (userRole in listOf("owner", "waiter", "counter")) {
@@ -459,8 +459,8 @@ fun MainAppLayout(
             items.add(Triple("Cozinha", Icons.Default.SoupKitchen, "Cozinha"))
         }
 
-        if (hasOrder && userRole in listOf("owner", "waiter", "counter")) {
-            items.add(Triple("Pedido", Icons.Filled.ShoppingBag, "Pedido"))
+        if (userRole in listOf("owner", "waiter", "counter")) {
+            items.add(Triple("Pedidos", Icons.AutoMirrored.Filled.List, "Pedidos"))
         }
 
         if (userRole in listOf("owner", "counter")) {
@@ -610,17 +610,14 @@ fun MainAppLayout(
                             "Balcão" -> pendingCounterCount
                             else -> 0
                         }
-                        val isOrder = routeKey == "Pedido"
-                        val isOrderBadge = isOrder && !orderViewModel.isOrderEmpty
                         val showCountBadge = badgeCount > 0
-
                         NavigationBarItem(
                             icon = {
-                                if (isOrderBadge || showCountBadge) {
+                                if (showCountBadge) {
                                     BadgedBox(badge = {
-                                        Badge { Text(if (isOrderBadge) "!" else badgeCount.toString()) }
+                                        Badge { Text(badgeCount.toString()) }
                                     }) {
-                                        Icon(icon, null, tint = if(isSelected) MaterialTheme.colorScheme.primary else if (isOrderBadge) Color.Red else LocalContentColor.current)
+                                        Icon(icon, null, tint = if(isSelected) MaterialTheme.colorScheme.primary else LocalContentColor.current)
                                     }
                                 } else {
                                     Icon(icon, null)
@@ -629,14 +626,10 @@ fun MainAppLayout(
                             label = { Text(title) },
                             selected = isSelected,
                             colors = NavigationBarItemDefaults.colors(
-                                indicatorColor = if (isOrder) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
+                                indicatorColor = MaterialTheme.colorScheme.secondaryContainer
                             ),
                             onClick = {
-                                if (isOrder) {
-                                    navController.navigate("order_summary/null")
-                                } else {
-                                    currentScreen = routeKey
-                                }
+                                currentScreen = routeKey
                             }
                         )
                     }
@@ -645,8 +638,9 @@ fun MainAppLayout(
         ) { innerPadding ->
             Box(Modifier.padding(innerPadding)) {
                 when (currentScreen) {
-                    "Cardápio" -> MainScreen(managementViewModel, { navController.navigate("detail/$it") }, { scope.launch { drawerState.open() } })
+                    "Cardápio" -> MainScreen(managementViewModel, orderViewModel, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
                     "Cozinha" -> KitchenScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
+                    "Pedidos" -> OrdersListScreen(kitchenViewModel, { scope.launch { drawerState.open() } }, { navController.navigate("order_summary/$it") })
                     "Balcão" -> CounterScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
                     "Mesa" -> TableScreen(kitchenViewModel, { scope.launch { drawerState.open() } }, { navController.navigate("order_summary/$it") })
                 }
@@ -732,11 +726,14 @@ fun CompanyQRCodeScreen(
 @Composable
 fun MainScreen(
     managementViewModel: ManagementViewModel,
+    orderViewModel: OrderViewModel,
     onNavigateToItemDetail: (String) -> Unit,
+    onNavigateToOrder: () -> Unit,
     onOpenDrawer: () -> Unit
 ) {
     var searchText by remember { mutableStateOf("") }
     var isSearchExpanded by remember { mutableStateOf(false) }
+    var showCartSheet by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val categoryChipListState = rememberLazyListState()
@@ -773,8 +770,106 @@ fun MainScreen(
                     }
                 }
             )
+        },
+        floatingActionButtonPosition = FabPosition.Center,
+        floatingActionButton = {
+            if (!orderViewModel.isOrderEmpty && !showCartSheet) {
+                ExtendedFloatingActionButton(
+                    onClick = { showCartSheet = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(bottom = 16.dp).fillMaxWidth(0.9f)
+                ) {
+                    val itemCount = orderViewModel.currentCartItems.sumOf { it.quantity }
+                    val totalPrice = orderViewModel.currentCartItems.sumOf { (it.singleItemTotalPrice * it.quantity) }
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("$itemCount Itens • R$ %.2f".format(totalPrice), fontWeight = FontWeight.Bold)
+                        }
+                        Text("Ver Pedido", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     ) { innerPadding ->
+        
+        if (showCartSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showCartSheet = false },
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text("Seu Pedido", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    
+                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                        items(orderViewModel.currentCartItems) { cartItem ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Text("${cartItem.quantity}x", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(12.dp))
+                                    Column {
+                                        Text(cartItem.menuItem.name, fontWeight = FontWeight.Bold)
+                                        if (cartItem.additionalIngredients.isNotEmpty()) {
+                                            Text(cartItem.additionalIngredients.map { "${it.value}x ${it.key}" }.joinToString(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                        }
+                                    }
+                                }
+                                Text("R$ %.2f".format(cartItem.singleItemTotalPrice * cartItem.quantity), fontWeight = FontWeight.Bold)
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                    
+                    val totalPrice = orderViewModel.currentCartItems.sumOf { (it.singleItemTotalPrice * it.quantity) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Total do Pedido", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Text("R$ %.2f".format(totalPrice), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showCartSheet = false },
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Adicionar Itens", fontWeight = FontWeight.Bold)
+                        }
+                        
+                        Button(
+                            onClick = {
+                                showCartSheet = false
+                                onNavigateToOrder()
+                            },
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Finalizar", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    
+                    Spacer(Modifier.height(32.dp))
+                }
+            }
+        }
         Column(Modifier.padding(innerPadding).fillMaxSize()) {
 
             AnimatedVisibility(
