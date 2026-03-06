@@ -180,15 +180,15 @@ class ManagementViewModel : ViewModel() {
                                 imageUrl = doc.getString("imageUrl") ?: "",
                                 isActive = doc.getBoolean("isActive") ?: true,
                                 category = doc.getString("category") ?: "Geral",
-                                ingredients = (doc.get("ingredients") as? List<String>)?.toSet() ?: emptySet(),
+                                ingredients = (doc.get("ingredients") as? List<*>)?.mapNotNull { it as? String }?.toSet() ?: emptySet(),
                                 optionals = try {
-                                    val list = doc.get("optionals") as? List<Map<String, Any>>
-                                    list?.map {
+                                    val list = doc.get("optionals") as? List<*>
+                                    list?.mapNotNull { it as? Map<*, *> }?.map {
                                         OptionalItem(it["name"] as? String ?: "", (it["price"] as? Number)?.toDouble() ?: 0.0)
                                     }?.toSet() ?: emptySet()
-                                } catch (e: Exception) { emptySet() }
+                                } catch (_: Exception) { emptySet() }
                             )
-                        } catch (e: Exception) { null }
+                        } catch (_: Exception) { null }
                     }
                 }
             }
@@ -200,14 +200,13 @@ class ManagementViewModel : ViewModel() {
             .addSnapshotListener { snapshot, e ->
                 if (snapshot != null && snapshot.exists()) {
                     try {
-                        @Suppress("UNCHECKED_CAST")
-                        val rawCategories = snapshot.get("categories") as? List<Map<String, Any>>
+                        val rawCategories = snapshot.get("categories") as? List<*>
                         if (rawCategories != null) {
-                            categoryConfigs = rawCategories.map { catMap ->
+                            categoryConfigs = rawCategories.mapNotNull { it as? Map<*, *> }.map { catMap ->
                                 val name = catMap["name"] as? String ?: "Sem Nome"
-                                val ingredients = (catMap["defaultIngredients"] as? List<String>) ?: emptyList()
-                                val rawOptionals = catMap["availableOptionals"] as? List<Map<String, Any>>
-                                val optionals = rawOptionals?.map { optMap ->
+                                val ingredients = (catMap["defaultIngredients"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                                val rawOptionals = catMap["availableOptionals"] as? List<*>
+                                val optionals = rawOptionals?.mapNotNull { it as? Map<*, *> }?.map { optMap ->
                                     OptionalItem(optMap["name"] as? String ?: "", (optMap["price"] as? Number)?.toDouble() ?: 0.0)
                                 } ?: emptyList()
                                 CategoryConfig(name, ingredients, optionals)
@@ -215,12 +214,12 @@ class ManagementViewModel : ViewModel() {
                         }
                     } catch (err: Exception) { Log.e("MngVM", "Error parsing settings", err) }
                 } else {
-                    createDefaultStructure(companyId)
+                    createDefaultStructure()
                 }
             }
     }
 
-    private fun createDefaultStructure(companyId: String) {
+    private fun createDefaultStructure() {
         categoryConfigs = listOf(CategoryConfig("Geral"))
         saveCategoriesToFirebase()
     }
@@ -231,6 +230,14 @@ class ManagementViewModel : ViewModel() {
     fun removeIngredientFromCategory(cat: String, ing: String) { updateCategory(cat) { it.copy(defaultIngredients = it.defaultIngredients - ing) } }
     fun addOptionalToCategory(cat: String, opt: OptionalItem) { updateCategory(cat) { it.copy(availableOptionals = it.availableOptionals + opt) } }
     fun removeOptionalFromCategory(cat: String, opt: OptionalItem) { updateCategory(cat) { it.copy(availableOptionals = it.availableOptionals - opt) } }
+    
+    fun updateIngredientsList(cat: String, list: List<String>) {
+        updateCategory(cat) { it.copy(defaultIngredients = list) }
+    }
+
+    fun updateOptionalsList(cat: String, list: List<OptionalItem>) {
+        updateCategory(cat) { it.copy(availableOptionals = list) }
+    }
     private fun updateCategory(name: String, update: (CategoryConfig) -> CategoryConfig) { categoryConfigs = categoryConfigs.map { if (it.name == name) update(it) else it }; saveCategoriesToFirebase() }
 
     private fun saveCategoriesToFirebase() {
@@ -248,16 +255,17 @@ class ManagementViewModel : ViewModel() {
             try {
                 val finalImageUrl = if (newImageUri != null) compressUriToBase64(context, newImageUri) else product.imageUrl
                 val nextCode = if (product.id.isBlank()) (products.maxOfOrNull { it.code } ?: 0) + 1 else product.code
-                val productData = hashMapOf("code" to nextCode, "name" to product.name, "price" to product.price, "imageUrl" to finalImageUrl, "isActive" to product.isActive, "category" to product.category, "ingredients" to product.ingredients.toList(), "optionals" to product.optionals.toList())
+                val productOptionalsMap = product.optionals.map { mapOf("name" to it.name, "price" to it.price) }.toList()
+                val productData = hashMapOf("code" to nextCode, "name" to product.name, "price" to product.price, "imageUrl" to finalImageUrl, "isActive" to product.isActive, "category" to product.category, "ingredients" to product.ingredients.toList(), "optionals" to productOptionalsMap)
                 val ref = db.collection("companies").document(companyId).collection("products")
                 if (product.id.isBlank()) ref.add(productData) else ref.document(product.id).set(productData)
                 isUploading = false
                 viewModelScope.launch(Dispatchers.Main) { onSuccess() }
-            } catch (e: Exception) { isUploading = false }
+            } catch (_: Exception) { isUploading = false }
         }
     }
 
-    private fun compressUriToBase64(context: Context, uri: Uri): String { return try { val inputStream = context.contentResolver.openInputStream(uri); val bitmap = BitmapFactory.decodeStream(inputStream); val outputStream = ByteArrayOutputStream(); bitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream); "data:image/jpeg;base64," + Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP) } catch (e: Exception) { "" } }
+    private fun compressUriToBase64(context: Context, uri: Uri): String { return try { val inputStream = context.contentResolver.openInputStream(uri); val bitmap = BitmapFactory.decodeStream(inputStream); val outputStream = ByteArrayOutputStream(); bitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream); "data:image/jpeg;base64," + Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP) } catch (_: Exception) { "" } }
     fun deleteProduct(product: ManagedProduct) { val companyId = currentCompanyId ?: return; if (product.id.isNotBlank()) db.collection("companies").document(companyId).collection("products").document(product.id).delete() }
 
     val productsByCategory: List<MenuCategory>

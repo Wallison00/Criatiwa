@@ -30,15 +30,15 @@ fun ManagementHubScreen(
     onNavigateToProducts: () -> Unit,
     onNavigateToCategories: () -> Unit,
     onNavigateToEmployees: () -> Unit,
-    onNavigateToPaymentConfig: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToPaymentConfig: () -> Unit
 ) {
     val company = managementViewModel.currentCompany
     val errorMessage = managementViewModel.errorMessage
 
     val qrBitmap = remember(company?.shareCode) {
-        if (!company?.shareCode.isNullOrBlank()) {
-            QRCodeUtils.generateQRCode(company!!.shareCode)
+        val code = company?.shareCode
+        if (!code.isNullOrBlank()) {
+            QRCodeUtils.generateQRCode(code)
         } else null
     }
 
@@ -127,13 +127,6 @@ fun ManagementHubScreen(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ManagementCard(title = "Produtos", icon = Icons.Default.Fastfood, color = Color(0xFF4CAF50), modifier = Modifier.weight(1f), onClick = onNavigateToProducts)
                     ManagementCard(title = "Estrutura", icon = Icons.Default.Category, color = Color(0xFF2196F3), modifier = Modifier.weight(1f), onClick = onNavigateToCategories)
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                // Fila Extra: Configurações Gerais (Impressora/Notificações)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    ManagementCard(title = "Configurações Gerais\n(Impressora)", icon = Icons.Default.Settings, color = Color(0xFF607D8B), modifier = Modifier.weight(1f), onClick = onNavigateToSettings)
                 }
             }
         }

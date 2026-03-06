@@ -36,13 +36,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Badge
-import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.ExitToApp
-import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Notifications // Ícone de notificação
 import androidx.compose.material.icons.outlined.QrCode2
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -61,7 +57,6 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -92,7 +87,7 @@ class MainActivity : ComponentActivity() {
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager: NotificationManager =
-                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                getSystemService(NOTIFICATION_SERVICE) as NotificationManager
 
             // Canal 1: Cozinha
             val channelKitchen = NotificationChannel("kitchen_orders", "Pedidos Cozinha", NotificationManager.IMPORTANCE_HIGH).apply {
@@ -223,7 +218,7 @@ fun AuthorizedApp(
 
     NavHost(navController = navController, startDestination = "main_layout") {
         composable("main_layout") {
-            MainAppLayout(managementViewModel, orderViewModel, kitchenViewModel, authViewModel, navController, isOffline)
+            MainAppLayout(managementViewModel, orderViewModel, kitchenViewModel, authViewModel, navController)
         }
 
         composable("management_hub") {
@@ -233,14 +228,18 @@ fun AuthorizedApp(
                 onNavigateToProducts = { navController.navigate("product_management") },
                 onNavigateToCategories = { navController.navigate("manage_categories") },
                 onNavigateToEmployees = { navController.navigate("employee_management") },
-                onNavigateToPaymentConfig = { navController.navigate("payment_config") }, // <--- Adicione esta linha
-                onNavigateToSettings = { navController.navigate("settings") }
+                onNavigateToPaymentConfig = { navController.navigate("payment_config") }
             )
         }
 
         // --- ROTA DE CONFIGURAÇÕES (Nova) ---
         composable("settings") {
             SettingsScreen(onNavigateBack = { navController.popBackStack() })
+        }
+        
+        // --- ROTA DA IMPRESSORA (Isolada) ---
+        composable("printer_config") {
+            PrinterConfigScreen(onNavigateBack = { navController.popBackStack() })
         }
 
         composable("company_qr_code") {
@@ -264,13 +263,32 @@ fun AuthorizedApp(
         composable("detail/{itemId}") { backStackEntry ->
             val itemId = backStackEntry.arguments?.getString("itemId")
             val product = managementViewModel.products.find { it.id == itemId }
+            
             if (product != null) {
+                // Intersect product's saved data with CURRENT CURRENT category configuration
+                val categoryConfig = managementViewModel.categoryConfigs.find { it.name.equals(product.category, ignoreCase = true) }
+                
+                val validIngredients = product.ingredients.intersect(categoryConfig?.defaultIngredients?.toSet() ?: emptySet()).toList()
+                
+                val validOptionals = product.optionals
+                    .filter { pOpt -> categoryConfig?.availableOptionals?.any { cOpt -> cOpt.name == pOpt.name } == true }
+                    .map { pOpt ->
+                        // Grab the LATEST price from category config
+                        val cOpt = categoryConfig?.availableOptionals?.find { it.name == pOpt.name }
+                        OptionalItem(pOpt.name, cOpt?.price ?: pOpt.price)
+                    }
+                    .toList()
+                    
+                val currentCategoryOptionals = categoryConfig?.availableOptionals ?: emptyList()
+
                 ItemDetailScreen(
                     product = MenuItem(product.id, product.code, product.name, product.price, product.imageUrl),
-                    productIngredients = product.ingredients.toList(),
-                    productOptionals = product.optionals.toList(),
-                    availableOptionals = product.optionals.toList(),
-                    orderViewModel = orderViewModel, onNavigateBack = { navController.popBackStack() }, onNavigateToOrder = { navController.popBackStack() }
+                    productIngredients = validIngredients,
+                    productOptionals = validOptionals,
+                    availableOptionals = currentCategoryOptionals,
+                    orderViewModel = orderViewModel, 
+                    onNavigateBack = { navController.popBackStack() }, 
+                    onNavigateToOrder = { navController.popBackStack() }
                 )
             }
         }
@@ -346,8 +364,7 @@ fun MainAppLayout(
     orderViewModel: OrderViewModel,
     kitchenViewModel: KitchenViewModel,
     authViewModel: AuthViewModel,
-    navController: NavController,
-    isOffline: Boolean
+    navController: NavController
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -401,7 +418,7 @@ fun MainAppLayout(
                             .setAutoCancel(true)
 
                         with(NotificationManagerCompat.from(context)) { notify(1001, builder.build()) }
-                    } catch (e: Exception) { }
+                    } catch (_: Exception) { }
                 }
             }
         }
@@ -424,7 +441,7 @@ fun MainAppLayout(
                             .setAutoCancel(true)
 
                         with(NotificationManagerCompat.from(context)) { notify(1002, builder.build()) }
-                    } catch (e: Exception) { }
+                    } catch (_: Exception) { }
                 }
             }
         }
@@ -560,6 +577,15 @@ fun MainAppLayout(
                         onClick = { scope.launch { drawerState.close(); navController.navigate("employee_management") } },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
+                    
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.Print, null) },
+                        label = { Text("Configuração de Impressora") },
+                        selected = false,
+                        onClick = { scope.launch { drawerState.close(); navController.navigate("printer_config") } },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
+
                     Divider(Modifier.padding(vertical = 8.dp))
                 }
 

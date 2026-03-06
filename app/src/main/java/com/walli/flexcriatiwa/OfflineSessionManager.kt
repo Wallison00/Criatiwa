@@ -2,38 +2,29 @@ package com.walli.flexcriatiwa
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import androidx.core.content.edit
+
+data class RegisteredPrinter(val mac: String, val name: String, val alias: String)
 
 class OfflineSessionManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("flex_criatiwa_session", Context.MODE_PRIVATE)
 
     fun saveSession(email: String, companyId: String, role: String, status: String, userName: String?) {
-        val editor = prefs.edit()
-        editor.putString("email", email)
-        editor.putString("companyId", companyId)
-        editor.putString("role", role)
-        editor.putString("status", status)
-        if (userName != null) editor.putString("userName", userName)
-        editor.apply()
-    }
-
-    fun getSession(): Map<String, String?> {
-        return mapOf(
-            "email" to prefs.getString("email", null),
-            "companyId" to prefs.getString("companyId", null),
-            "role" to prefs.getString("role", null),
-            "status" to prefs.getString("status", null),
-            "userName" to prefs.getString("userName", null)
-        )
-    }
-
-    fun clearSession() {
-        prefs.edit().clear().apply()
+        prefs.edit {
+            putString("email", email)
+            putString("companyId", companyId)
+            putString("role", role)
+            putString("status", status)
+            if (userName != null) putString("userName", userName)
+        }
     }
 
     // --- NOVAS FUNÇÕES PARA CONFIGURAÇÃO DE NOTIFICAÇÃO ---
 
     fun setNotifyKitchen(enabled: Boolean) {
-        prefs.edit().putBoolean("notify_kitchen", enabled).apply()
+        prefs.edit { putBoolean("notify_kitchen", enabled) }
     }
 
     fun getNotifyKitchen(): Boolean {
@@ -44,7 +35,7 @@ class OfflineSessionManager(context: Context) {
     }
 
     fun setNotifyCounter(enabled: Boolean) {
-        prefs.edit().putBoolean("notify_counter", enabled).apply()
+        prefs.edit { putBoolean("notify_counter", enabled) }
     }
 
     fun getNotifyCounter(): Boolean {
@@ -56,10 +47,34 @@ class OfflineSessionManager(context: Context) {
 
     // --- FUNÇÕES DA IMPRESSORA BLUETOOTH ---
     fun setPrinterMacAddress(mac: String?) {
-        prefs.edit().putString("printer_mac", mac).apply()
+        prefs.edit { putString("printer_mac", mac) }
     }
 
     fun getPrinterMacAddress(): String? {
         return prefs.getString("printer_mac", null)
+    }
+
+    fun setPrinterAlias(alias: String?) {
+        prefs.edit { putString("printer_alias", alias) }
+    }
+
+    // --- NOVA LISTA DE IMPRESSORAS CADASTRADAS ---
+    fun getRegisteredPrinters(): List<RegisteredPrinter> {
+        val json = prefs.getString("registered_printers", null) ?: return emptyList()
+        val type = object : TypeToken<List<RegisteredPrinter>>() {}.type
+        return try { Gson().fromJson(json, type) } catch(_: Exception) { emptyList() }
+    }
+
+    fun addRegisteredPrinter(printer: RegisteredPrinter) {
+        val current = getRegisteredPrinters().toMutableList()
+        current.removeAll { it.mac == printer.mac }
+        current.add(printer)
+        prefs.edit { putString("registered_printers", Gson().toJson(current)) }
+    }
+
+    fun removeRegisteredPrinter(mac: String) {
+        val current = getRegisteredPrinters().toMutableList()
+        current.removeAll { it.mac == mac }
+        prefs.edit { putString("registered_printers", Gson().toJson(current)) }
     }
 }

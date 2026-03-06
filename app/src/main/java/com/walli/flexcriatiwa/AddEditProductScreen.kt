@@ -16,7 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.*
@@ -48,7 +48,7 @@ fun AddEditProductScreen(
     val isEditing = productBeingEdited != null
 
     var productName by remember { mutableStateOf(productBeingEdited?.name ?: "") }
-    var productPrice by remember { mutableStateOf(if (isEditing) (productBeingEdited!!.price * 100).toLong().toString() else "") }
+    var productPrice by remember { mutableStateOf(if (productBeingEdited != null) (productBeingEdited.price * 100).toLong().toString() else "") }
     var isActive by remember { mutableStateOf(productBeingEdited?.isActive ?: true) }
 
     // Configuração de Categoria
@@ -59,8 +59,16 @@ fun AddEditProductScreen(
     val availableIngredientsForCat = currentCategoryConfig?.defaultIngredients ?: emptyList()
     val availableOptionalsForCat = currentCategoryConfig?.availableOptionals ?: emptyList()
 
-    var selectedIngredients by remember { mutableStateOf(productBeingEdited?.ingredients ?: emptySet()) }
-    var selectedOptionals by remember { mutableStateOf(productBeingEdited?.optionals ?: emptySet()) }
+    var selectedIngredients by remember(availableIngredientsForCat) { 
+        mutableStateOf((productBeingEdited?.ingredients ?: emptySet()).intersect(availableIngredientsForCat.toSet())) 
+    }
+    var selectedOptionals by remember(availableOptionalsForCat) { 
+        mutableStateOf(
+            (productBeingEdited?.optionals ?: emptySet())
+                .filter { pOpt -> availableOptionalsForCat.any { cOpt -> cOpt.name == pOpt.name } }
+                .toSet()
+        ) 
+    }
 
     // --- LÓGICA DE IMAGEM ---
     var newSelectedImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -90,7 +98,7 @@ fun AddEditProductScreen(
                 val decodedBytes = Base64.decode(base64String, Base64.DEFAULT)
                 BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)?.asImageBitmap()
             } else null
-        } catch (e: Exception) { null }
+        } catch (_: Exception) { null }
     }
 
     DisposableEffect(Unit) {
@@ -137,7 +145,7 @@ fun AddEditProductScreen(
             TopAppBar(
                 title = { Text(if (isEditing) "Editar Produto" else "Adicionar Produto") },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Voltar") }
+                    IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") }
                 }
             )
         },
