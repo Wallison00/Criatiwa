@@ -3,7 +3,6 @@ package com.walli.flexcriatiwa
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.os.Build
@@ -36,9 +35,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.ExitToApp
 import androidx.compose.material.icons.outlined.Notifications // Ícone de notificação
 import androidx.compose.material.icons.outlined.QrCode2
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.outlined.ExitToApp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -171,7 +171,7 @@ fun RootNavigation(
 
         is AuthState.SuperAdmin -> SuperAdminScreen(authViewModel, onSignOut = { authViewModel.signOut() })
 
-        is AuthState.LoggedIn -> AuthorizedApp(authState.companyId, authViewModel, orderViewModel, kitchenViewModel, managementViewModel, authState.isOfflineMode)
+        is AuthState.LoggedIn -> AuthorizedApp(authState.companyId, authViewModel, orderViewModel, kitchenViewModel, managementViewModel)
     }
 }
 
@@ -181,8 +181,7 @@ fun AuthorizedApp(
     authViewModel: AuthViewModel,
     orderViewModel: OrderViewModel,
     kitchenViewModel: KitchenViewModel,
-    managementViewModel: ManagementViewModel,
-    isOffline: Boolean
+    managementViewModel: ManagementViewModel
 ) {
     val navController = rememberNavController()
     val userRole = authViewModel.currentUserProfile?.role ?: "employee"
@@ -505,7 +504,7 @@ fun MainAppLayout(
                             }
                         }
                     }
-                    Divider()
+                    HorizontalDivider()
                 }
 
                 // --- ITEM DE CONFIGURAÇÃO (Para TODOS os usuários) ---
@@ -533,7 +532,7 @@ fun MainAppLayout(
                     )
                 }
 
-                Divider(Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
                 if (userRole == "owner" || isAdminMode) {
                     Text("Gestão", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -563,7 +562,7 @@ fun MainAppLayout(
                     )
 
                     NavigationDrawerItem(
-                        icon = { Icon(Icons.Default.List, null) },
+                        icon = { Icon(Icons.AutoMirrored.Filled.List, null) },
                         label = { Text("Categorias") },
                         selected = false,
                         onClick = { scope.launch { drawerState.close(); navController.navigate("manage_categories") } },
@@ -586,12 +585,12 @@ fun MainAppLayout(
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
 
-                    Divider(Modifier.padding(vertical = 8.dp))
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 }
 
                 Spacer(Modifier.weight(1f))
                 NavigationDrawerItem(
-                    icon = { Icon(Icons.Outlined.ExitToApp, null) },
+                    icon = { Icon(Icons.AutoMirrored.Outlined.ExitToApp, null) },
                     label = { Text("Sair") },
                     selected = false,
                     onClick = { scope.launch { drawerState.close(); if(isAdminMode) authViewModel.exitCompanyMode() else authViewModel.signOut() } },
@@ -646,7 +645,7 @@ fun MainAppLayout(
         ) { innerPadding ->
             Box(Modifier.padding(innerPadding)) {
                 when (currentScreen) {
-                    "Cardápio" -> MainScreen(managementViewModel, !orderViewModel.isOrderEmpty, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
+                    "Cardápio" -> MainScreen(managementViewModel, { navController.navigate("detail/$it") }, { scope.launch { drawerState.open() } })
                     "Cozinha" -> KitchenScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
                     "Balcão" -> CounterScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
                     "Mesa" -> TableScreen(kitchenViewModel, { scope.launch { drawerState.open() } }, { navController.navigate("order_summary/$it") })
@@ -733,9 +732,7 @@ fun CompanyQRCodeScreen(
 @Composable
 fun MainScreen(
     managementViewModel: ManagementViewModel,
-    isOrderInProgress: Boolean,
     onNavigateToItemDetail: (String) -> Unit,
-    onNavigateToOrder: () -> Unit,
     onOpenDrawer: () -> Unit
 ) {
     var searchText by remember { mutableStateOf("") }
@@ -867,7 +864,7 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
                 BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
                     ?.asImageBitmap()
             } else null
-        } catch (e: Exception) { null }
+        } catch (_: Exception) { null }
     }
 
     Column(
@@ -932,18 +929,6 @@ fun MenuItemCard(item: MenuItem, onClick: () -> Unit) {
 }
 
 @Composable
-fun CategoryHeader(categoryName: String) {
-    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = categoryName,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(vertical = 16.dp)
-        )
-    }
-}
-
-@Composable
 fun CategoryChip(text: String, isSelected: Boolean, onClick: () -> Unit) {
     val bgColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
@@ -960,25 +945,4 @@ fun CategoryChip(text: String, isSelected: Boolean, onClick: () -> Unit) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
     }
-}
-
-@Composable
-fun SearchBar(searchText: String, onSearchChange: (String) -> Unit, onClearClick: () -> Unit) {
-    OutlinedTextField(
-        value = searchText,
-        onValueChange = onSearchChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        placeholder = { Text("Buscar produtos...") },
-        leadingIcon = { Icon(Icons.Default.Search, null) },
-        trailingIcon = {
-            if (searchText.isNotEmpty()) {
-                IconButton(onClick = onClearClick) { Icon(Icons.Default.Close, null) }
-            }
-        },
-        shape = RoundedCornerShape(24.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-            focusedContainerColor = MaterialTheme.colorScheme.surface
-        )
-    )
 }
