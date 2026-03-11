@@ -211,12 +211,12 @@ fun TableCard(
                         val spaceXBottom = size.width / (bottomSeats + 1)
 
                         // Topo e Baixo
-                        for (i in 1..topSeats) drawChair(i * spaceXTop, 6.dp.toPx(), 180f)
-                        for (i in 1..bottomSeats) drawChair(i * spaceXBottom, size.height - 6.dp.toPx(), 0f)
+                        for (i in 1..topSeats) drawChair(i * spaceXTop, 6.dp.toPx(), 0f)
+                        for (i in 1..bottomSeats) drawChair(i * spaceXBottom, size.height - 6.dp.toPx(), 180f)
                         
                         // Esquerda e Direita
-                        drawChair(6.dp.toPx(), size.height / 2f, 90f) // Virada pra direita
-                        drawChair(size.width - 6.dp.toPx(), size.height / 2f, 270f) // Virada pra esquerda
+                        drawChair(6.dp.toPx(), size.height / 2f, 270f) // Virada pra direita (para dentro da mesa)
+                        drawChair(size.width - 6.dp.toPx(), size.height / 2f, 90f) // Virada pra esquerda (para dentro)
                     } else {
                         val topSeats = (seats + 1) / 2
                         val bottomSeats = seats / 2
@@ -224,8 +224,8 @@ fun TableCard(
                         val spaceXTop = size.width / (topSeats + 1)
                         val spaceXBottom = size.width / (bottomSeats + 1)
 
-                        for (i in 1..topSeats) drawChair(i * spaceXTop, 6.dp.toPx(), 180f)
-                        for (i in 1..bottomSeats) drawChair(i * spaceXBottom, size.height - 6.dp.toPx(), 0f)
+                        for (i in 1..topSeats) drawChair(i * spaceXTop, 6.dp.toPx(), 0f)
+                        for (i in 1..bottomSeats) drawChair(i * spaceXBottom, size.height - 6.dp.toPx(), 180f)
                     }
                 } else {
                     val angleStep = 360f / seats
