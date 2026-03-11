@@ -251,6 +251,14 @@ fun AuthorizedApp(
             CompanyQRCodeScreen(
                 companyId = companyId,
                 companyName = authViewModel.currentUserProfile?.companyName ?: "Empresa",
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToTableLayout = { navController.navigate("table_layout_config") }
+            )
+        }
+
+        composable("table_layout_config") {
+            TableLayoutConfigScreen(
+                companyId = companyId,
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -544,17 +552,9 @@ fun MainAppLayout(
 
                     NavigationDrawerItem(
                         icon = { Icon(Icons.Outlined.QrCode2, null) },
-                        label = { Text("QR Code da Loja") },
+                        label = { Text("Configurações da Loja") },
                         selected = false,
                         onClick = { scope.launch { drawerState.close(); navController.navigate("company_qr_code") } },
-                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                    )
-
-                    NavigationDrawerItem(
-                        icon = { Icon(Icons.Default.Dashboard, null) },
-                        label = { Text("Abrir Hub de Gestão") },
-                        selected = false,
-                        onClick = { scope.launch { drawerState.close(); navController.navigate("management_hub") } },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
 
@@ -660,15 +660,21 @@ fun MainAppLayout(
 fun CompanyQRCodeScreen(
     companyId: String,
     companyName: String,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToTableLayout: () -> Unit
 ) {
     var shareCode by remember { mutableStateOf("") }
+    var tableCountText by remember { mutableStateOf("20") }
     var isLoading by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(companyId) {
         Firebase.firestore.collection("companies").document(companyId).get()
             .addOnSuccessListener {
                 shareCode = it.getString("shareCode") ?: ""
+                val count = it.getLong("tableCount")?.toInt() ?: 20
+                tableCountText = count.toString()
                 isLoading = false
             }
             .addOnFailureListener { isLoading = false }
@@ -679,24 +685,40 @@ fun CompanyQRCodeScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Acesso da Loja", fontWeight = FontWeight.Bold) },
+                title = { Text("Configurações da Loja", fontWeight = FontWeight.Bold) },
                 navigationIcon = { IconButton(onClick = onNavigateBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } }
             )
         }
     ) { innerPadding ->
         Column(
-            modifier = Modifier.padding(innerPadding).fillMaxSize().padding(24.dp),
+            modifier = Modifier.padding(innerPadding).fillMaxSize().padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            // verticalArrangement removed for better layout with top and bottom sections
         ) {
-            Text(
-                text = "Peça para o autônomo escanear ou digitar este código:",
-                style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(companyName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Acesso de Funcionários",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = "Peça para o autônomo escanear ou digitar este código:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(24.dp))
 
             if (isLoading) {
                 CircularProgressIndicator()
@@ -716,13 +738,77 @@ fun CompanyQRCodeScreen(
                     letterSpacing = 4.sp
                 )
             } else {
-                Box(Modifier.size(300.dp).background(Color.LightGray), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(200.dp).background(Color.LightGray), contentAlignment = Alignment.Center) {
                     Text("Erro ao carregar código")
+                }
+            }
+                    Spacer(Modifier.height(16.dp))
                 }
             }
 
             Spacer(Modifier.height(32.dp))
-            Text(companyName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp).fillMaxWidth()) {
+                    Text(
+                        text = "Quantidade de Mesas",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Configure quantas mesas exibir na tela de atendimento de Salão.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = tableCountText,
+                            onValueChange = { tableCountText = it.filter { char -> char.isDigit() } },
+                            label = { Text("Número Total de Mesas") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Button(
+                            onClick = {
+                                val count = tableCountText.toIntOrNull() ?: return@Button
+                                if (count in 1..200) {
+                                    scope.launch {
+                                        try {
+                                            Firebase.firestore.collection("companies").document(companyId)
+                                                .update("tableCount", count)
+                                                .addOnSuccessListener {
+                                                    scope.launch { snackbarHostState.showSnackbar("Mesas atualizadas com sucesso!") }
+                                                }
+                                        } catch (e: Exception) {
+                                            snackbarHostState.showSnackbar("Erro ao atualizar camas.")
+                                        }
+                                    }
+                                } else {
+                                    scope.launch { snackbarHostState.showSnackbar("Quantidade inválida (1-200)") }
+                                }
+                            },
+                        ) {
+                            Text("Salvar")
+                        }
+                    }
+                    
+                    Spacer(Modifier.height(16.dp))
+                    
+                    OutlinedButton(
+                        onClick = onNavigateToTableLayout,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Configurar Layout do Salão")
+                    }
+                }
+            }
         }
     }
 }

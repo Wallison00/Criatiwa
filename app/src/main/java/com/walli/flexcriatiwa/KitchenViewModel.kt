@@ -18,6 +18,14 @@ class KitchenViewModel : ViewModel() {
     private val _allActiveOrders = MutableStateFlow<List<KitchenOrder>>(emptyList())
     val allActiveOrders: StateFlow<List<KitchenOrder>> = _allActiveOrders.asStateFlow()
 
+    private val _tableCount = MutableStateFlow(20)
+    val tableCount: StateFlow<Int> = _tableCount.asStateFlow()
+
+    private val _tablePositions = MutableStateFlow<Map<String, TablePosition>>(emptyMap())
+    val tablePositions: StateFlow<Map<String, TablePosition>> = _tablePositions.asStateFlow()
+
+    private var companyListener: ListenerRegistration? = null
+
     // Filtra pedidos para a tela da cozinha (Apenas PREPARING)
     val kitchenOrders: StateFlow<List<KitchenOrder>> = _allActiveOrders.map { orders ->
         orders.filter { it.status == OrderStatus.PREPARING }
@@ -47,6 +55,7 @@ class KitchenViewModel : ViewModel() {
         if (currentCompanyId == companyId) return
         currentCompanyId = companyId
         ordersListener?.remove()
+        companyListener?.remove()
 
         ordersListener = db.collection("companies").document(companyId).collection("orders")
             .whereNotEqualTo("status", "FINISHED")
@@ -70,6 +79,33 @@ class KitchenViewModel : ViewModel() {
                                 closingNote = closingNote
                             )
                         } catch (_: Exception) { null }
+                    }
+                }
+            }
+
+        companyListener = db.collection("companies").document(companyId)
+            .addSnapshotListener { snapshot, e ->
+                if (snapshot != null && snapshot.exists()) {
+                    val count = snapshot.getLong("tableCount")?.toInt() ?: 20
+                    _tableCount.value = count
+                    
+                    val mapPos = snapshot.get("tablePositions") as? Map<*, *>
+                    if (mapPos != null) {
+                        try {
+                            val parsedMap = mapPos.mapNotNull {
+                                val key = it.key as? String ?: return@mapNotNull null
+                                val posMap = it.value as? Map<*, *> ?: return@mapNotNull null
+                                val x = (posMap["x"] as? Number)?.toFloat() ?: 0f
+                                val y = (posMap["y"] as? Number)?.toFloat() ?: 0f
+                                val shape = posMap["shape"] as? String ?: "square"
+                                val seats = (posMap["seats"] as? Number)?.toInt() ?: 4
+                                val rotation = (posMap["rotation"] as? Number)?.toFloat() ?: 0f
+                                key to TablePosition(x, y, shape, seats, rotation)
+                            }.toMap()
+                            _tablePositions.value = parsedMap
+                        } catch (_: Exception) { }
+                    } else {
+                        _tablePositions.value = emptyMap()
                     }
                 }
             }

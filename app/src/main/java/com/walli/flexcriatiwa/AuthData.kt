@@ -22,5 +22,15 @@ data class Company(
     val status: String = "active",
     val plan: String = "free",
     val expiresAt: Timestamp? = null,
-    val shareCode: String = ""
+    val shareCode: String = "",
+    val tableCount: Int = 20,
+    val tablePositions: Map<String, Map<String, Any>> = emptyMap()
+)
+
+data class TablePosition(
+    val x: Float = 0f,
+    val y: Float = 0f,
+    val shape: String = "square", // "square", "round", "rectangle"
+    val seats: Int = 4,
+    val rotation: Float = 0f
 )
