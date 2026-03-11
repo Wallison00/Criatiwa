@@ -31,6 +31,9 @@ class ManagementViewModel : ViewModel() {
     private var paymentConfigListener: ListenerRegistration? = null // Novo listener
 
     // --- ESTADOS ---
+    var isLoadingProducts by mutableStateOf(true)
+        private set
+
     var products by mutableStateOf<List<ManagedProduct>>(emptyList())
         private set
 
@@ -190,6 +193,9 @@ class ManagementViewModel : ViewModel() {
                             )
                         } catch (_: Exception) { null }
                     }
+                    isLoadingProducts = false
+                } else {
+                    isLoadingProducts = false
                 }
             }
     }

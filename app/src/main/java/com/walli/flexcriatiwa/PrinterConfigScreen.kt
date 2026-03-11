@@ -42,6 +42,7 @@ fun PrinterConfigScreen(
 
     var registeredPrinters by remember { mutableStateOf(offlineManager.getRegisteredPrinters()) }
     var printerStatuses by remember { mutableStateOf<Map<String, Boolean?>>(emptyMap()) } // mac -> true(online), false(offline), null(verificando)
+    var nextUpdateSeconds by remember { mutableIntStateOf(10) }
 
     // Form inputs
     var selectedMac by remember { mutableStateOf<String?>(null) }
@@ -94,8 +95,9 @@ fun PrinterConfigScreen(
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val adapter = bluetoothManager.adapter
         
-        // Loop infinito pingando as impressoras da lista de X em X segundos
+        // Loop infinito pingando as impressoras da lista
         while(true) {
+            nextUpdateSeconds = 0 // Indica que está verificando
             val newStatuses = mutableMapOf<String, Boolean?>()
             withContext(Dispatchers.IO) {
                 val uuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB") // Genérico Serial
@@ -113,7 +115,12 @@ fun PrinterConfigScreen(
                 }
             }
             printerStatuses = newStatuses
-            delay(10000) // Pings cada 10 segundos
+            
+            // Countdown visual de 10 segundos
+            for (i in 10 downTo 1) {
+                nextUpdateSeconds = i
+                delay(1000)
+            }
         }
     }
 
@@ -244,12 +251,18 @@ fun PrinterConfigScreen(
                     HorizontalDivider()
                     Spacer(modifier = Modifier.height(8.dp))
                     
-                    Text(
-                        "Impressoras Cadastradas",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
+                    Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Impressoras Cadastradas",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        if (nextUpdateSeconds > 0) {
+                            Text("Atualiza em ${nextUpdateSeconds}s", style = MaterialTheme.typography.bodySmall, color = androidx.compose.ui.graphics.Color.Gray)
+                        } else {
+                            Text("Atualizando...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
                 }
             }
 
