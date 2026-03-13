@@ -32,5 +32,6 @@ data class TablePosition(
     val y: Float = 0f,
     val shape: String = "square", // "square", "round", "rectangle"
     val seats: Int = 4,
-    val rotation: Float = 0f
+    val rotation: Float = 0f,
+    val isLocked: Boolean = false
 )

@@ -23,6 +23,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -646,7 +648,7 @@ fun MainAppLayout(
                     "Cardápio" -> MainScreen(managementViewModel, orderViewModel, { navController.navigate("detail/$it") }, { navController.navigate("order_summary/null") }, { scope.launch { drawerState.open() } })
                     "Cozinha" -> KitchenScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
                     "Pedidos" -> OrdersListScreen(kitchenViewModel, { scope.launch { drawerState.open() } }, { navController.navigate("order_summary/$it") })
-                    "Balcão" -> CounterScreen(kitchenViewModel) { scope.launch { drawerState.open() } }
+                    "Balcão" -> CounterScreen(kitchenViewModel, onOpenDrawer = { scope.launch { drawerState.open() } }, onLocateTable = { tableId -> kitchenViewModel.setHighlightTable(tableId); currentScreen = "Mesa" })
                     "Mesa" -> TableScreen(kitchenViewModel, { scope.launch { drawerState.open() } }, { navController.navigate("order_summary/$it") })
                 }
             }
@@ -694,9 +696,12 @@ fun CompanyQRCodeScreen(
         }
     ) { innerPadding ->
         Column(
-            modifier = Modifier.padding(innerPadding).fillMaxSize().padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            // verticalArrangement removed for better layout with top and bottom sections
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.height(16.dp))
             Text(companyName, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)

@@ -24,6 +24,13 @@ class KitchenViewModel : ViewModel() {
     private val _tablePositions = MutableStateFlow<Map<String, TablePosition>>(emptyMap())
     val tablePositions: StateFlow<Map<String, TablePosition>> = _tablePositions.asStateFlow()
 
+    private val _highlightTableId = MutableStateFlow<String?>(null)
+    val highlightTableId: StateFlow<String?> = _highlightTableId.asStateFlow()
+
+    fun setHighlightTable(tableId: String?) {
+        _highlightTableId.value = tableId
+    }
+
     private var companyListener: ListenerRegistration? = null
 
     // Filtra pedidos para a tela da cozinha (Apenas PREPARING)

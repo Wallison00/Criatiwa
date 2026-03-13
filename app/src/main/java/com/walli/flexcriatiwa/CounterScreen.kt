@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -20,7 +22,8 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun CounterScreen(
     kitchenViewModel: KitchenViewModel,
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    onLocateTable: (String) -> Unit
 ) {
     val readyOrders by kitchenViewModel.readyOrders.collectAsState(initial = emptyList())
 
@@ -52,6 +55,10 @@ fun CounterScreen(
                             order = order,
                             onDeliver = {
                                 kitchenViewModel.updateOrderStatus(order.id, OrderStatus.DELIVERED)
+                            },
+                            onLocate = {
+                                val tableId = order.tableSelection.firstOrNull()?.toString()
+                                if (tableId != null) onLocateTable(tableId)
                             }
                         )
                     }
@@ -62,7 +69,7 @@ fun CounterScreen(
 }
 
 @Composable
-fun CounterOrderCard(order: KitchenOrder, onDeliver: () -> Unit) {
+fun CounterOrderCard(order: KitchenOrder, onDeliver: () -> Unit, onLocate: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)), // Verde claro
         modifier = Modifier.fillMaxWidth()
@@ -103,6 +110,8 @@ fun CounterOrderCard(order: KitchenOrder, onDeliver: () -> Unit) {
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             Text("Itens:", fontWeight = FontWeight.Bold)
+            
+            // ... (rest of the itens loop)
 
             // --- LOOP DETALHADO DOS ITENS (Igual à Cozinha) ---
             order.items.forEach { item ->
@@ -135,12 +144,33 @@ fun CounterOrderCard(order: KitchenOrder, onDeliver: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(
-                onClick = onDeliver,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("ENTREGAR PEDIDO")
+                if (order.tableSelection.isNotEmpty() && order.destinationType == "Local") {
+                    OutlinedButton(
+                        onClick = onLocate,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2E7D32))
+                    ) {
+                        Icon(Icons.Default.LocationOn, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("MESA", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Button(
+                    onClick = onDeliver,
+                    modifier = Modifier.weight(if (order.tableSelection.isNotEmpty()) 1.2f else 1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("ENTREGAR", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
