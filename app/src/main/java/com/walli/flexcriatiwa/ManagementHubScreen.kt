@@ -30,7 +30,9 @@ fun ManagementHubScreen(
     onNavigateToProducts: () -> Unit,
     onNavigateToCategories: () -> Unit,
     onNavigateToEmployees: () -> Unit,
-    onNavigateToPaymentConfig: () -> Unit
+    onNavigateToPaymentConfig: () -> Unit,
+    onNavigateToStock: () -> Unit,
+    onNavigateToPrinter: () -> Unit
 ) {
     val company = managementViewModel.currentCompany
     val errorMessage = managementViewModel.errorMessage
@@ -127,6 +129,26 @@ fun ManagementHubScreen(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ManagementCard(title = "Produtos", icon = Icons.Default.Fastfood, color = Color(0xFF4CAF50), modifier = Modifier.weight(1f), onClick = onNavigateToProducts)
                     ManagementCard(title = "Estrutura", icon = Icons.Default.Category, color = Color(0xFF2196F3), modifier = Modifier.weight(1f), onClick = onNavigateToCategories)
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // Nova Fila: Estoque e Impressora
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    ManagementCard(
+                        title = "Estoque",
+                        icon = Icons.Default.Inventory,
+                        color = Color(0xFFFF9800), // Laranja
+                        modifier = Modifier.weight(1f),
+                        onClick = onNavigateToStock
+                    )
+                    ManagementCard(
+                        title = "Impressora",
+                        icon = Icons.Default.Print,
+                        color = Color(0xFF607D8B), // Blue Grey
+                        modifier = Modifier.weight(1f),
+                        onClick = onNavigateToPrinter
+                    )
                 }
             }
         }

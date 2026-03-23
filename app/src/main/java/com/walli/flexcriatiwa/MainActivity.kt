@@ -235,7 +235,9 @@ fun AuthorizedApp(
                 onNavigateToProducts = { navController.navigate("product_management") },
                 onNavigateToCategories = { navController.navigate("manage_categories") },
                 onNavigateToEmployees = { navController.navigate("employee_management") },
-                onNavigateToPaymentConfig = { navController.navigate("payment_config") }
+                onNavigateToPaymentConfig = { navController.navigate("payment_config") },
+                onNavigateToStock = { navController.navigate("stock_management") },
+                onNavigateToPrinter = { navController.navigate("printer_config") }
             )
         }
 
@@ -366,6 +368,14 @@ fun AuthorizedApp(
             PaymentConfigScreen(
                 companyId = companyId,
                 managementViewModel = managementViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable("stock_management") {
+            StockManagementScreen(
+                managementViewModel = managementViewModel,
+                userName = authViewModel.currentUserProfile?.name ?: "Usuário",
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -589,6 +599,14 @@ fun MainAppLayout(
                         label = { Text("Configuração de Impressora") },
                         selected = false,
                         onClick = { scope.launch { drawerState.close(); navController.navigate("printer_config") } },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
+
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.Inventory, null) },
+                        label = { Text("Estoque de Insumos") },
+                        selected = false,
+                        onClick = { scope.launch { drawerState.close(); navController.navigate("stock_management") } },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
 

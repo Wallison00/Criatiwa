@@ -35,3 +35,24 @@ data class TablePosition(
     val rotation: Float = 0f,
     val isLocked: Boolean = false
 )
+
+data class StockItem(
+    val id: String = "",
+    val name: String = "",
+    val barcode: String = "",
+    val quantity: Double = 0.0,
+    val minQuantity: Double = 0.0,
+    val unit: String = "Unidade",
+    val imageUrl: String = ""
+)
+
+data class StockHistory(
+    val id: String = "",
+    val stockItemId: String = "",
+    val itemName: String = "",
+    val type: String = "ENTRADA", // "CADASTRO", "ENTRADA", "EDICAO", "EXCLUSAO"
+    val changeAmount: Double = 0.0,
+    val finalQuantity: Double = 0.0,
+    val timestamp: Timestamp = Timestamp.now(),
+    val handledByName: String = ""
+)

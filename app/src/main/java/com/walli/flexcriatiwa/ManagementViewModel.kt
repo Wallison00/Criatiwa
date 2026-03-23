@@ -13,6 +13,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -58,6 +59,16 @@ class ManagementViewModel : ViewModel() {
     var paymentConfig by mutableStateOf<PaymentConfig?>(null)
         private set
 
+    // --- ESTOQUE ---
+    var stockItems by mutableStateOf<List<StockItem>>(emptyList())
+        private set
+    
+    var stockHistoryItems by mutableStateOf<List<StockHistory>>(emptyList())
+        private set
+
+    private var stockListener: ListenerRegistration? = null
+    private var stockHistoryListener: ListenerRegistration? = null
+
     // --- INICIALIZAÇÃO ---
     fun updateCompanyContext(companyId: String) {
         currentCompanyId = companyId
@@ -67,6 +78,8 @@ class ManagementViewModel : ViewModel() {
         pendingUsersListener?.remove()
         employeesListener?.remove()
         paymentConfigListener?.remove() // Limpa o anterior
+        stockListener?.remove()
+        stockHistoryListener?.remove()
 
         startListeningProducts(companyId)
         startListeningSettings(companyId)
@@ -74,6 +87,7 @@ class ManagementViewModel : ViewModel() {
         startListeningForEmployees(companyId)
         loadCompanyDetails(companyId)
         loadPaymentConfig(companyId) // Inicia a escuta do Mercado Pago
+        startListeningStock(companyId)
     }
 
     // --- MERCADO PAGO: CARREGAR CONFIGURAÇÕES ---
@@ -270,6 +284,125 @@ class ManagementViewModel : ViewModel() {
             } catch (_: Exception) { isUploading = false }
         }
     }
+
+    // --- GERENCIAMENTO DE ESTOQUE ---
+    private fun startListeningStock(companyId: String) {
+        stockListener = db.collection("companies").document(companyId).collection("stock")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null) {
+                    stockItems = snapshot.documents.mapNotNull { doc ->
+                        try {
+                            StockItem(
+                                id = doc.id,
+                                name = doc.getString("name") ?: "",
+                                barcode = doc.getString("barcode") ?: "",
+                                quantity = doc.getDouble("quantity") ?: 0.0,
+                                minQuantity = doc.getDouble("minQuantity") ?: 0.0,
+                                unit = doc.getString("unit") ?: "Unidade",
+                                imageUrl = doc.getString("imageUrl") ?: ""
+                            )
+                        } catch (_: Exception) { null }
+                    }
+                }
+            }
+        
+        stockHistoryListener = db.collection("companies").document(companyId).collection("stock_history")
+            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null) {
+                    stockHistoryItems = snapshot.documents.mapNotNull { doc ->
+                        try {
+                            StockHistory(
+                                id = doc.id, stockItemId = doc.getString("stockItemId") ?: "",
+                                itemName = doc.getString("itemName") ?: "", type = doc.getString("type") ?: "ENTRADA",
+                                changeAmount = doc.getDouble("changeAmount") ?: 0.0, finalQuantity = doc.getDouble("finalQuantity") ?: 0.0,
+                                timestamp = doc.getTimestamp("timestamp") ?: com.google.firebase.Timestamp.now(),
+                                handledByName = doc.getString("handledByName") ?: ""
+                            )
+                        } catch (_: Exception) { null }
+                    }
+                }
+            }
+    }
+
+    private fun logStockHistory(companyId: String, stockItemId: String, itemName: String, type: String, changeAmount: Double, finalQuantity: Double, handledByName: String) {
+        val historyData = hashMapOf(
+            "stockItemId" to stockItemId, "itemName" to itemName, "type" to type,
+            "changeAmount" to changeAmount, "finalQuantity" to finalQuantity,
+            "handledByName" to handledByName, "timestamp" to FieldValue.serverTimestamp()
+        )
+        db.collection("companies").document(companyId).collection("stock_history").add(historyData)
+    }
+
+    fun saveStockItem(context: Context, item: StockItem, newImageUri: Uri?, handledByName: String, onSuccess: () -> Unit) {
+        val companyId = currentCompanyId ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            isUploading = true
+            try {
+                // Reutiliza a função de compressão para Base64 que não salva arquivos isolados
+                val finalImageUrl = if (newImageUri != null) compressUriToBase64(context, newImageUri) else item.imageUrl
+                
+                val itemData = hashMapOf(
+                    "name" to item.name,
+                    "barcode" to item.barcode,
+                    "quantity" to item.quantity,
+                    "minQuantity" to item.minQuantity,
+                    "unit" to item.unit,
+                    "imageUrl" to finalImageUrl
+                )
+                
+                val ref = db.collection("companies").document(companyId).collection("stock")
+                if (item.id.isBlank()) {
+                    ref.add(itemData).addOnSuccessListener { docRef ->
+                        logStockHistory(companyId, docRef.id, item.name, "CADASTRO", item.quantity, item.quantity, handledByName)
+                    }.addOnFailureListener { e -> errorMessage = "Erro Firebase: ${e.message}" }
+                } else {
+                    ref.document(item.id).set(itemData).addOnSuccessListener {
+                        logStockHistory(companyId, item.id, item.name, "EDICAO", 0.0, item.quantity, handledByName)
+                    }.addOnFailureListener { e -> errorMessage = "Erro Firebase: ${e.message}" }
+                }
+                
+                isUploading = false
+                viewModelScope.launch(Dispatchers.Main) { onSuccess() }
+            } catch (e: Exception) { 
+                isUploading = false
+                errorMessage = "Erro interno: ${e.message}"
+                Log.e("Estoque", "Erro ao salvar insumo", e)
+            }
+        }
+    }
+
+    fun registerStockEntry(item: StockItem, additionalQuantity: Double, handledByName: String, onSuccess: () -> Unit) {
+        val companyId = currentCompanyId ?: return
+        if (item.id.isBlank() || additionalQuantity <= 0) return
+        viewModelScope.launch(Dispatchers.IO) {
+            isUploading = true
+            try {
+                val newQuantity = item.quantity + additionalQuantity
+                val ref = db.collection("companies").document(companyId).collection("stock").document(item.id)
+                ref.update("quantity", newQuantity).addOnSuccessListener {
+                    logStockHistory(companyId, item.id, item.name, "ENTRADA", additionalQuantity, newQuantity, handledByName)
+                    isUploading = false
+                    viewModelScope.launch(Dispatchers.Main) { onSuccess() }
+                }.addOnFailureListener { 
+                    isUploading = false
+                    errorMessage = "Falha ao registrar entrada: ${it.message}" 
+                }
+            } catch (e: Exception) {
+                isUploading = false
+            }
+        }
+    }
+
+    fun deleteStockItem(item: StockItem, handledByName: String) {
+        val companyId = currentCompanyId ?: return
+        if (item.id.isNotBlank()) {
+            db.collection("companies").document(companyId).collection("stock").document(item.id).delete().addOnSuccessListener {
+                logStockHistory(companyId, item.id, item.name, "EXCLUSAO", -item.quantity, 0.0, handledByName)
+            }
+        }
+    }
+
 
     private fun compressUriToBase64(context: Context, uri: Uri): String { return try { val inputStream = context.contentResolver.openInputStream(uri); val bitmap = BitmapFactory.decodeStream(inputStream); val outputStream = ByteArrayOutputStream(); bitmap.compress(Bitmap.CompressFormat.JPEG, 60, outputStream); "data:image/jpeg;base64," + Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP) } catch (_: Exception) { "" } }
     fun deleteProduct(product: ManagedProduct) { val companyId = currentCompanyId ?: return; if (product.id.isNotBlank()) db.collection("companies").document(companyId).collection("products").document(product.id).delete() }
