@@ -13,6 +13,9 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -28,6 +31,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -151,12 +158,49 @@ fun TableLayoutConfigScreen(
     }
 
     var showAddTableModal by remember { mutableStateOf(false) }
+    var requestCenterView by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = AppBackground,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            ConfigTopBar(title = "Design do Salão", onBack = onNavigateBack)
+            ConfigTopBar(title = "Design do Salão", onBack = onNavigateBack) {
+                IconButton(onClick = { requestCenterView = true }) {
+                    Icon(Icons.Default.CenterFocusStrong, "Enquadrar Tudo", tint = PrimaryAccent)
+                }
+                IconButton(
+                    onClick = {
+                        if (undoStack.isNotEmpty()) {
+                            val newRedo = redoStack.toMutableList()
+                            newRedo.add(tablePositions)
+                            redoStack = newRedo
+                            
+                            val newUndo = undoStack.toMutableList()
+                            tablePositions = newUndo.removeLast()
+                            undoStack = newUndo
+                        }
+                    },
+                    enabled = undoStack.isNotEmpty()
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Undo, "Desfazer", tint = if (undoStack.isNotEmpty()) PrimaryAccent else Color.Gray)
+                }
+                IconButton(
+                    onClick = {
+                        if (redoStack.isNotEmpty()) {
+                            val newUndo = undoStack.toMutableList()
+                            newUndo.add(tablePositions)
+                            undoStack = newUndo
+                            
+                            val newRedo = redoStack.toMutableList()
+                            tablePositions = newRedo.removeLast()
+                            redoStack = newRedo
+                        }
+                    },
+                    enabled = redoStack.isNotEmpty()
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Redo, "Refazer", tint = if (redoStack.isNotEmpty()) PrimaryAccent else Color.Gray)
+                }
+            }
         }
     ) { innerPadding ->
         if (isLoading) {
@@ -217,6 +261,22 @@ fun TableLayoutConfigScreen(
                     if (!isInitialized && !isLoading && boxWidth > 0) {
                         centerView(null)
                         isInitialized = true
+                    }
+                }
+                
+                LaunchedEffect(requestCenterView) {
+                    if (requestCenterView) {
+                        centerView(null)
+                        requestCenterView = false
+                    }
+                }
+
+                var showZoomPopup by remember { mutableStateOf(false) }
+                LaunchedEffect(zoomLevel) {
+                    if (isInitialized) {
+                        showZoomPopup = true
+                        kotlinx.coroutines.delay(2000)
+                        showZoomPopup = false
                     }
                 }
 
@@ -319,71 +379,28 @@ fun TableLayoutConfigScreen(
                     }
                 }
 
-                // --- TOOLBOX SUPERIOR (ZOOM & RESET) ---
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 16.dp)
-                        .shadow(8.dp, RoundedCornerShape(24.dp))
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color.White.copy(alpha = 0.95f))
-                        .border(1.dp, CardBorderColor, RoundedCornerShape(24.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // --- ZOOM INDICATOR (TEMPORÁRIO) ---
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showZoomPopup,
+                    enter = androidx.compose.animation.fadeIn(),
+                    exit = androidx.compose.animation.fadeOut(),
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)
                 ) {
-                    IconButton(onClick = { zoomLevel = (zoomLevel / 1.15f).coerceAtLeast(0.4f) }) {
-                        Icon(Icons.Default.Remove, "Zoom Out", tint = PrimaryAccent)
-                    }
-                    Text(
-                        "${(zoomLevel * 100).roundToInt()}%", 
-                        fontSize = 13.sp, 
-                        fontWeight = FontWeight.Bold,
-                        color = Color.DarkGray,
-                        modifier = Modifier.width(42.dp).clickable { zoomLevel = 1.0f },
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                    IconButton(onClick = { zoomLevel = (zoomLevel * 1.15f).coerceAtMost(2.5f) }) {
-                        Icon(Icons.Default.Add, "Zoom In", tint = PrimaryAccent)
-                    }
-
-                    VerticalDivider(modifier = Modifier.height(24.dp), thickness = 1.dp, color = CardBorderColor)
-                    VerticalDivider(modifier = Modifier.height(24.dp), thickness = 1.dp, color = CardBorderColor)
-                    IconButton(onClick = { centerView(null) }) {
-                        Icon(Icons.Default.CenterFocusStrong, "Enquadrar Tudo", tint = PrimaryAccent)
-                    }
-                    VerticalDivider(modifier = Modifier.height(24.dp), thickness = 1.dp, color = CardBorderColor)
-                    IconButton(
-                        onClick = {
-                            if (undoStack.isNotEmpty()) {
-                                val newRedo = redoStack.toMutableList()
-                                newRedo.add(tablePositions)
-                                redoStack = newRedo
-                                
-                                val newUndo = undoStack.toMutableList()
-                                tablePositions = newUndo.removeLast()
-                                undoStack = newUndo
-                            }
-                        },
-                        enabled = undoStack.isNotEmpty()
+                    Box(
+                        modifier = Modifier
+                            .shadow(8.dp, RoundedCornerShape(24.dp))
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(Color.White.copy(alpha = 0.95f))
+                            .border(1.dp, CardBorderColor, RoundedCornerShape(24.dp))
+                            .padding(horizontal = 24.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Desfazer", tint = if (undoStack.isNotEmpty()) PrimaryAccent else Color.Gray)
-                    }
-                    IconButton(
-                        onClick = {
-                            if (redoStack.isNotEmpty()) {
-                                val newUndo = undoStack.toMutableList()
-                                newUndo.add(tablePositions)
-                                undoStack = newUndo
-                                
-                                val newRedo = redoStack.toMutableList()
-                                tablePositions = newRedo.removeLast()
-                                redoStack = newRedo
-                            }
-                        },
-                        enabled = redoStack.isNotEmpty()
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, "Refazer", tint = if (redoStack.isNotEmpty()) PrimaryAccent else Color.Gray)
+                        Text(
+                            "${(zoomLevel * 100).roundToInt()}%", 
+                            fontSize = 14.sp, 
+                            fontWeight = FontWeight.Bold,
+                            color = PrimaryAccent
+                        )
                     }
                 }
 
@@ -512,7 +529,7 @@ fun GridCanvas(snapSize: Float) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConfigTopBar(title: String, onBack: () -> Unit) {
+fun ConfigTopBar(title: String, onBack: () -> Unit, actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}) {
     CenterAlignedTopAppBar(
         title = { Text(title, fontWeight = FontWeight.ExtraBold, color = Color(0xFF1E293B)) },
         navigationIcon = {
@@ -520,6 +537,7 @@ fun ConfigTopBar(title: String, onBack: () -> Unit) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar", tint = PrimaryAccent) 
             }
         },
+        actions = actions,
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = AppBackground),
         modifier = Modifier.shadow(2.dp)
     )
@@ -615,10 +633,48 @@ fun DraggableTableItem(
             ),
         contentAlignment = Alignment.Center
     ) {
+        val handleSeatsChange = { inc: Int -> 
+            val minSeats = if (position.shape == "counter") 1 else 2
+            var newSeats = (position.seats + inc).coerceAtLeast(minSeats)
+            var newShape = position.shape
+            
+            if (position.shape == "rectangle" && newSeats <= 4) {
+                newShape = "square"
+                newSeats = 4
+            } else if (position.shape == "square" && newSeats > 4) {
+                newShape = "rectangle"
+            }
+            onUpdate(tableId, position.copy(seats = newSeats, shape = newShape)) 
+        }
+
         Box(modifier = Modifier
             .fillMaxSize()
             .then(if (isSelected && !position.isLocked) {
                 Modifier.border(2.dp, PrimaryAccent, RoundedCornerShape(12.dp))
+            } else Modifier)
+            .then(if (position.shape == "counter" && !position.isLocked) {
+                Modifier.pointerInput(position.seats) {
+                    var zoomAcc = 1f
+                    awaitEachGesture {
+                        awaitFirstDown()
+                        do {
+                            val event = awaitPointerEvent()
+                            val zoomChange = event.calculateZoom()
+                            // Exige 2 dedos e previne zoom do salão ao consumir modificações do gesto de pinça no balcão
+                            if (zoomChange != 1f && event.changes.size > 1) { 
+                                event.changes.forEach { it.consume() }
+                                zoomAcc *= zoomChange
+                                if (zoomAcc > 1.25f) {
+                                    handleSeatsChange(2)
+                                    zoomAcc = 1f
+                                } else if (zoomAcc < 0.75f) {
+                                    handleSeatsChange(-2)
+                                    zoomAcc = 1f
+                                }
+                            }
+                        } while (event.changes.any { it.pressed })
+                    }
+                }
             } else Modifier)
         ) {
             TableCard(
@@ -638,20 +694,7 @@ fun DraggableTableItem(
                 widthPx = widthPx,
                 heightPx = heightPx,
                 isTablet = isTablet,
-                onSeatsChange = { inc -> 
-                    val minSeats = if (position.shape == "counter") 1 else 2
-                    var newSeats = (position.seats + inc).coerceAtLeast(minSeats)
-                    var newShape = position.shape
-                    
-                    if (position.shape == "rectangle" && newSeats <= 4) {
-                        newShape = "square"
-                        newSeats = 4
-                    } else if (position.shape == "square" && newSeats > 4) {
-                        newShape = "rectangle"
-                    }
-                    
-                    onUpdate(tableId, position.copy(seats = newSeats, shape = newShape)) 
-                },
+                onSeatsChange = handleSeatsChange,
                 onRotate = { onUpdate(tableId, position.copy(rotation = if(position.rotation == 0f) 90f else 0f)) },
                 onToggleLock = { onUpdate(tableId, position.copy(isLocked = !position.isLocked)) },
                 onDelete = { onDelete(tableId) },
@@ -731,8 +774,10 @@ fun TableActionHUD(
 
     if (!position.isLocked) {
         ActionBubble(Offset(l, t), Icons.Default.Delete, Color.Red, onDelete)
-        ActionBubble(Offset(r, t), if(position.shape == "counter") Icons.AutoMirrored.Filled.ArrowForward else Icons.Default.Add, Color(0xFF10B981), { onSeatsChange(2) })
-        ActionBubble(Offset(r, b), if(position.shape == "counter") Icons.AutoMirrored.Filled.ArrowBack else Icons.Default.Remove, Color(0xFFF59E0B), { onSeatsChange(-2) })
+        if (position.shape != "counter") {
+            ActionBubble(Offset(r, t), Icons.Default.Add, Color(0xFF10B981), { onSeatsChange(2) })
+            ActionBubble(Offset(r, b), Icons.Default.Remove, Color(0xFFF59E0B), { onSeatsChange(-2) })
+        }
         
         if (position.shape == "rectangle" || position.shape == "counter" || 
             (position.shape == "square" && position.seats == 2) || 
